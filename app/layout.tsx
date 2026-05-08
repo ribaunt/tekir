@@ -38,8 +38,6 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="https://tekir.co" />
 
-        {/* Preload critical resources */}
-        <link rel="preload" href="/favicon.ico" as="image" type="image/x-icon" />
       </head>
       <body className={inter.className}>
         <a href="#main-content" className="sr-only focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2">
