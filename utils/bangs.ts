@@ -1,6 +1,7 @@
 import posthog from 'posthog-js';
+import { LOCAL_BANGS, type BangsData } from './bangs-data';
 
-let bangsCache: Record<string, {name: string, url: string, main?: string}> | null = null;
+let bangsCache: BangsData | null = null;
 const BANGS_CACHE_KEY = 'tekir_bangs_cache';
 const BANGS_CACHE_EXPIRY_KEY = 'tekir_bangs_cache_expiry';
 const CACHE_TTL = 1 * 24 * 60 * 60 * 1000; // 1 day in milliseconds
@@ -12,61 +13,24 @@ const CACHE_TTL = 1 * 24 * 60 * 60 * 1000; // 1 day in milliseconds
 export async function prefetchBangs(): Promise<void> {
   // Check if we already have bangs in memory
   if (bangsCache) return;
-  
-  // Check if we have a valid cache in localStorage
+
+  bangsCache = LOCAL_BANGS;
+
   if (typeof window !== 'undefined') {
-    const cachedBangs = localStorage.getItem(BANGS_CACHE_KEY);
-    const cacheExpiry = localStorage.getItem(BANGS_CACHE_EXPIRY_KEY);
-    
-    if (cachedBangs && cacheExpiry) {
-      const expiryDate = parseInt(cacheExpiry, 10);
-      // If the cache hasn't expired, use it
-      if (Date.now() < expiryDate) {
-        try {
-          bangsCache = JSON.parse(cachedBangs);
-          return;
-        } catch (e) {
-          console.warn('Failed to parse cached bangs', e);
-          // Continue to fetch if parsing fails
-        }
-      }
-    }
+    localStorage.setItem(BANGS_CACHE_KEY, JSON.stringify(LOCAL_BANGS));
+    localStorage.setItem(BANGS_CACHE_EXPIRY_KEY, (Date.now() + CACHE_TTL).toString());
   }
-  
-  // Fetch and cache the bangs
-  await refreshBangsCache();
 }
 
 /**
- * Fetch the latest bangs data and update both memory and localStorage
+ * Refresh the local bangs cache in memory and localStorage.
  */
 async function refreshBangsCache(): Promise<void> {
-  try {
-    const response = await fetch('https://bang.lat/bangs.json');
-    if (!response.ok) {
-      throw new Error(`Failed to fetch bangs: ${response.statusText}`);
-    }
-    
-    bangsCache = await response.json();
-    
-    // Update localStorage cache
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(BANGS_CACHE_KEY, JSON.stringify(bangsCache));
-      localStorage.setItem(BANGS_CACHE_EXPIRY_KEY, (Date.now() + CACHE_TTL).toString());
-    }
-  } catch (err) {
-    console.error('Error refreshing bangs cache:', err);
-    // If we fail to fetch, we'll try to use any existing cache
-    if (!bangsCache && typeof window !== 'undefined') {
-      const cachedBangs = localStorage.getItem(BANGS_CACHE_KEY);
-      if (cachedBangs) {
-        try {
-          bangsCache = JSON.parse(cachedBangs);
-        } catch (e) {
-          console.error('Failed to use backup cached bangs', e);
-        }
-      }
-    }
+  bangsCache = LOCAL_BANGS;
+
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(BANGS_CACHE_KEY, JSON.stringify(LOCAL_BANGS));
+    localStorage.setItem(BANGS_CACHE_EXPIRY_KEY, (Date.now() + CACHE_TTL).toString());
   }
 }
 
