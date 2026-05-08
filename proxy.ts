@@ -151,6 +151,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/api/captcha') ||
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/ph/') ||
+    pathname.startsWith('/metadata/') ||
     pathname.includes('/favicon.ico') ||
     pathname.includes('/robots.txt') ||
     pathname.includes('/sitemap.xml')

@@ -3,6 +3,12 @@ import { onCLS, onINP, onLCP, onFCP, onTTFB } from 'web-vitals';
 
 const POSTHOG_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const POSTHOG_CONFIGURED = Boolean(POSTHOG_KEY);
+const POSTHOG_API_PROXY_PATH = '/metadata';
+const POSTHOG_ASSET_PROXY_PATH = '/metadata';
+const POSTHOG_EXTERNAL_SCRIPT_ALIASES: Record<string, string> = {
+  '/static/posthog-recorder.js': `${POSTHOG_ASSET_PROXY_PATH}/session-capture.js`,
+  '/static/dead-clicks-autocapture.js': `${POSTHOG_ASSET_PROXY_PATH}/click-signals.js`,
+};
 
 // ============================================================================
 // Consent Management
@@ -46,7 +52,7 @@ function captureReplayStatus(source: string): void {
 
 if (POSTHOG_CONFIGURED) {
   posthog.init(POSTHOG_KEY!, {
-    api_host: '/ph',
+    api_host: POSTHOG_API_PROXY_PATH,
     defaults: '2025-05-24',
     ui_host: 'https://eu.posthog.com',
 
@@ -84,6 +90,22 @@ if (POSTHOG_CONFIGURED) {
     },
 
     // Advanced configuration
+    prepare_external_dependency_script: (script) => {
+      const src = script.getAttribute('src');
+      if (!src || typeof window === 'undefined') return script;
+
+      const url = new URL(src, window.location.origin);
+      const aliasedPath = POSTHOG_EXTERNAL_SCRIPT_ALIASES[
+        url.pathname.replace(POSTHOG_API_PROXY_PATH, '')
+      ];
+
+      if (aliasedPath) {
+        script.src = `${aliasedPath}${url.search}`;
+      }
+
+      return script;
+    },
+
     before_send: (event) => {
       // Check consent before sending any event
       if (!getAnalyticsConsent() || !event) {

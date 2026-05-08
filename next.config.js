@@ -104,8 +104,32 @@ const nextConfig = {
   async rewrites() {
     return [
       {
+        source: '/metadata/session-capture.js',
+        destination: 'https://eu-assets.i.posthog.com/static/posthog-recorder.js',
+      },
+      {
+        source: '/metadata/click-signals.js',
+        destination: 'https://eu-assets.i.posthog.com/static/dead-clicks-autocapture.js',
+      },
+      {
+        source: '/metadata/static/:path*',
+        destination: 'https://eu-assets.i.posthog.com/static/:path*',
+      },
+      {
+        source: '/metadata/array/:path*',
+        destination: 'https://eu-assets.i.posthog.com/array/:path*',
+      },
+      {
+        source: '/metadata/:path*',
+        destination: 'https://eu.i.posthog.com/:path*',
+      },
+      {
         source: '/ph/static/:path*',
         destination: 'https://eu-assets.i.posthog.com/static/:path*',
+      },
+      {
+        source: '/ph/array/:path*',
+        destination: 'https://eu-assets.i.posthog.com/array/:path*',
       },
       {
         source: '/ph/:path*',
