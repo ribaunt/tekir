@@ -7,16 +7,19 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyResourceLoads, getSession } from '@/lib/captcha-dispatcher';
+import { DEFAULT_CAPTCHA_RESOURCES, verifyResourceLoads, getSession } from '@/lib/captcha-dispatcher';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getPostHogServer } from '@/lib/posthog-server';
 import { withAPIObservability } from '@/lib/api-observability';
+import { toCaptchaMonitoringProperties, trackCaptchaMonitoringEvent } from '@/lib/captcha-monitoring';
 
 function captureCaptchaEvent(
   event: string,
   distinctId: string,
   properties: Record<string, unknown> = {},
 ) {
+  trackCaptchaMonitoringEvent(event, toCaptchaMonitoringProperties(properties), distinctId);
+
   const posthog = getPostHogServer();
   posthog.capture({
     distinctId,
@@ -56,10 +59,7 @@ async function POSTHandler(request: NextRequest) {
     }
 
     // Verify that required resources were loaded
-    const verification = verifyResourceLoads(sessionId, expectedResources || {
-      js: '/captcha/resources/verify.js',
-      css: '/captcha/resources/verify.css',
-    });
+    const verification = verifyResourceLoads(sessionId, expectedResources || DEFAULT_CAPTCHA_RESOURCES);
 
     if (!verification.passed) {
       captureCaptchaEvent('captcha_verify_resources_failed', sessionId, {
@@ -89,6 +89,14 @@ async function POSTHandler(request: NextRequest) {
     }
 
     // Mark resources as verified, but challenge still needs CAPTCHA solution
+    trackCaptchaMonitoringEvent('captcha_resources_verified', {
+      session_id: sessionId,
+      risk_score: session.riskScore,
+      requires_captcha: session.isChallenged,
+      js_loaded: verification.jsLoaded,
+      css_loaded: verification.cssLoaded,
+    }, sessionId);
+
     return NextResponse.json({
       passed: true,
       reason: 'Resources loaded successfully',

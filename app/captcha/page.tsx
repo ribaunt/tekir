@@ -19,6 +19,8 @@ export default function CaptchaPage() {
   const hasRedirectedRef = useRef(false);
   const [heading, setHeading] = useState('Let\'s verify you before proceeding.');
   const [returnUrl, setReturnUrl] = useState('/');
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [resourceProofReady, setResourceProofReady] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [hostname, setHostname] = useState('localhost:3000');
   const [widgetStatus, setWidgetStatus] = useState<'loading' | 'ready' | 'verifying' | 'done' | 'error'>(
@@ -35,6 +37,8 @@ export default function CaptchaPage() {
     // Parse URL search params directly from window.location
     const urlParams = new URLSearchParams(window.location.search);
     let url = urlParams.get('returnUrl');
+    const nextSessionId = urlParams.get('sessionId');
+    setSessionId(nextSessionId);
     
     // If no query param, use the current pathname (for rewritten pages)
     if (!url) {
@@ -82,8 +86,80 @@ export default function CaptchaPage() {
     posthog.capture('captcha_viewed', {
       return_url: url,
       path: window.location.pathname,
+      risk_score: urlParams.get('riskScore'),
+      severity: urlParams.get('severity'),
     });
   }, []);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setResourceProofReady(true);
+      return;
+    }
+
+    let cancelled = false;
+
+    const markResourceProof = async () => {
+      try {
+        await Promise.all([
+          fetch('/api/captcha/resource-loaded', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId,
+              resourcePath: '/captcha/client.js',
+              type: 'js',
+            }),
+          }),
+          fetch('/api/captcha/resource-loaded', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId,
+              resourcePath: '/captcha/client.css',
+              type: 'css',
+            }),
+          }),
+        ]);
+
+        const verification = await fetch('/api/captcha/verify-resources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId,
+            expectedResources: {
+              js: '/captcha/client.js',
+              css: '/captcha/client.css',
+            },
+          }),
+        });
+
+        if (!cancelled) {
+          setResourceProofReady(true);
+          if (!verification.ok) {
+            posthog.capture('captcha_resource_proof_failed', {
+              session_id: sessionId,
+              status: verification.status,
+            });
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setResourceProofReady(true);
+          posthog.capture('captcha_resource_proof_error', {
+            session_id: sessionId,
+            message: error instanceof Error ? error.message : 'resource_proof_failed',
+          });
+        }
+      }
+    };
+
+    void markResourceProof();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   // Theme detection
   useEffect(() => {
@@ -370,16 +446,20 @@ export default function CaptchaPage() {
           {widgetStatus === 'loading' && (
             <div className="loading">Loading verification widget...</div>
           )}
-          <RibauntWidget
-            id="captcha-widget"
-            challengeEndpoint="/api/captcha/challenge"
-            verifyEndpoint="/api/captcha/verify"
-            showWarning={false}
-            onVerify={handleVerify}
-            onError={handleError}
-            onStateChange={handleStateChange}
-            onReady={handleReady}
-          />
+          {resourceProofReady ? (
+            <RibauntWidget
+              id="captcha-widget"
+              challengeEndpoint="/api/captcha/challenge"
+              verifyEndpoint={`/api/captcha/verify${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`}
+              showWarning={false}
+              onVerify={handleVerify}
+              onError={handleError}
+              onStateChange={handleStateChange}
+              onReady={handleReady}
+            />
+          ) : (
+            <div className="loading">Preparing browser verification...</div>
+          )}
         </div>
         <noscript>
           <style>{`

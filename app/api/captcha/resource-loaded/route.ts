@@ -11,12 +11,15 @@ import { recordResourceLoad } from '@/lib/captcha-dispatcher';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getPostHogServer } from '@/lib/posthog-server';
 import { withAPIObservability } from '@/lib/api-observability';
+import { toCaptchaMonitoringProperties, trackCaptchaMonitoringEvent } from '@/lib/captcha-monitoring';
 
 function captureCaptchaEvent(
   event: string,
   distinctId: string,
   properties: Record<string, unknown> = {},
 ) {
+  trackCaptchaMonitoringEvent(event, toCaptchaMonitoringProperties(properties), distinctId);
+
   const posthog = getPostHogServer();
   posthog.capture({
     distinctId,
@@ -48,6 +51,13 @@ async function POSTHandler(request: NextRequest) {
     const { sessionId, resourcePath, type } = body;
 
     if (!sessionId || !resourcePath || !type) {
+      trackCaptchaMonitoringEvent('captcha_resource_load_rejected', {
+        reason: 'missing_required_fields',
+        has_session_id: Boolean(sessionId),
+        has_resource_path: Boolean(resourcePath),
+        type: typeof type === 'string' ? type : 'unknown',
+      });
+
       return NextResponse.json(
         { error: 'Missing required fields: sessionId, resourcePath, type' },
         { status: 400 }
@@ -55,6 +65,12 @@ async function POSTHandler(request: NextRequest) {
     }
 
     if (type !== 'js' && type !== 'css') {
+      trackCaptchaMonitoringEvent('captcha_resource_load_rejected', {
+        reason: 'invalid_resource_type',
+        session_id: sessionId,
+        type,
+      }, sessionId);
+
       return NextResponse.json(
         { error: 'Invalid resource type. Must be "js" or "css"' },
         { status: 400 }
@@ -74,6 +90,12 @@ async function POSTHandler(request: NextRequest) {
         { status: 404 }
       );
     }
+
+    trackCaptchaMonitoringEvent('captcha_resource_loaded', {
+      session_id: sessionId,
+      resource_path: resourcePath,
+      type,
+    }, sessionId);
 
     return NextResponse.json({
       success: true,

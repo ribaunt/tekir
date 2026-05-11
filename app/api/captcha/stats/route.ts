@@ -7,11 +7,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getChallengeStats, getSession } from '@/lib/captcha-dispatcher';
 import { getPostHogServer } from '@/lib/posthog-server';
 import { withAPIObservability } from '@/lib/api-observability';
+import { toCaptchaMonitoringProperties, trackCaptchaMonitoringEvent } from '@/lib/captcha-monitoring';
 
 function captureCaptchaEvent(
   event: string,
   properties: Record<string, unknown> = {},
 ) {
+  trackCaptchaMonitoringEvent(event, toCaptchaMonitoringProperties(properties), 'captcha_admin');
+
   const posthog = getPostHogServer();
   posthog.capture({
     distinctId: 'captcha_admin',
@@ -36,6 +39,11 @@ function isAuthorized(request: NextRequest): boolean {
 async function GETHandler(request: NextRequest) {
   // Check authorization
   if (!isAuthorized(request)) {
+    trackCaptchaMonitoringEvent('captcha_stats_unauthorized', {
+      method: 'GET',
+      has_admin_token_configured: Boolean(process.env.CAPTCHA_ADMIN_TOKEN),
+    }, 'captcha_admin');
+
     return NextResponse.json(
       { error: 'Unauthorized' },
       { status: 401 }
@@ -44,6 +52,13 @@ async function GETHandler(request: NextRequest) {
 
   try {
     const stats = getChallengeStats();
+    trackCaptchaMonitoringEvent('captcha_stats_viewed', {
+      total_sessions: stats.totalSessions,
+      active_sessions: stats.activeSessions,
+      challenged_sessions: stats.challengedSessions,
+      verified_sessions: stats.verifiedSessions,
+      average_risk_score: stats.averageRiskScore,
+    }, 'captcha_admin');
 
     return NextResponse.json({
       status: 'ok',
@@ -64,6 +79,11 @@ async function GETHandler(request: NextRequest) {
 // Endpoint to check a specific session (for debugging)
 async function POSTHandler(request: NextRequest) {
   if (!isAuthorized(request)) {
+    trackCaptchaMonitoringEvent('captcha_stats_unauthorized', {
+      method: 'POST',
+      has_admin_token_configured: Boolean(process.env.CAPTCHA_ADMIN_TOKEN),
+    }, 'captcha_admin');
+
     return NextResponse.json(
       { error: 'Unauthorized' },
       { status: 401 }
@@ -74,6 +94,10 @@ async function POSTHandler(request: NextRequest) {
     const { sessionId } = await request.json();
 
     if (!sessionId) {
+      trackCaptchaMonitoringEvent('captcha_session_check_rejected', {
+        reason: 'missing_session_id',
+      }, 'captcha_admin');
+
       return NextResponse.json(
         { error: 'Missing sessionId' },
         { status: 400 }
@@ -83,11 +107,25 @@ async function POSTHandler(request: NextRequest) {
     const session = getSession(sessionId);
 
     if (!session) {
+      trackCaptchaMonitoringEvent('captcha_session_check_rejected', {
+        reason: 'session_not_found',
+        session_id: sessionId,
+      }, 'captcha_admin');
+
       return NextResponse.json(
         { error: 'Session not found' },
         { status: 404 }
       );
     }
+
+    trackCaptchaMonitoringEvent('captcha_session_checked', {
+      session_id: session.id,
+      risk_score: session.riskScore,
+      is_challenged: session.isChallenged,
+      verified: session.verified,
+      js_resource_count: session.resourcesLoadTracker.jsLoaded.size,
+      css_resource_count: session.resourcesLoadTracker.cssLoaded.size,
+    }, 'captcha_admin');
 
     return NextResponse.json({
       sessionId: session.id,

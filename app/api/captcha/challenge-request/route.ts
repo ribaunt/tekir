@@ -4,14 +4,17 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { dispatchChallenge } from '@/lib/captcha-dispatcher';
+import { DEFAULT_CAPTCHA_RESOURCES, dispatchChallenge } from '@/lib/captcha-dispatcher';
 import { getPostHogServer } from '@/lib/posthog-server';
 import { withAPIObservability } from '@/lib/api-observability';
+import { toCaptchaMonitoringProperties, trackCaptchaMonitoringEvent } from '@/lib/captcha-monitoring';
 
 function captureCaptchaEvent(
   event: string,
   properties: Record<string, unknown> = {},
 ) {
+  trackCaptchaMonitoringEvent(event, toCaptchaMonitoringProperties(properties));
+
   const posthog = getPostHogServer();
   posthog.capture({
     distinctId: 'captcha_api',
@@ -61,6 +64,13 @@ async function POSTHandler(request: NextRequest) {
 
     // If not challenging, return minimal response
     if (!challenge.shouldChallenge) {
+      trackCaptchaMonitoringEvent('captcha_challenge_request_checked', {
+        required: false,
+        session_id: challenge.sessionId,
+        severity: challenge.severity,
+        reason: challenge.reason,
+      }, challenge.sessionId);
+
       return NextResponse.json({
         required: false,
         sessionId: challenge.sessionId,
@@ -71,10 +81,16 @@ async function POSTHandler(request: NextRequest) {
     // Return challenge payload
     const requiredResources = challenge.payload && 'requiredResources' in challenge.payload
       ? (challenge.payload as any).requiredResources
-      : {
-          js: '/captcha/resources/verify.js',
-          css: '/captcha/resources/verify.css',
-        };
+      : DEFAULT_CAPTCHA_RESOURCES;
+
+    trackCaptchaMonitoringEvent('captcha_challenge_request_checked', {
+      required: true,
+      session_id: challenge.sessionId,
+      severity: challenge.severity,
+      reason: challenge.reason,
+      has_js_resource: Boolean(requiredResources.js),
+      has_css_resource: Boolean(requiredResources.css),
+    }, challenge.sessionId);
 
     return NextResponse.json({
       required: true,

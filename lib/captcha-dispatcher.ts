@@ -4,6 +4,12 @@
  */
 
 import { analyzeFingerprint, shouldChallenge, generateChallengePayload } from './captcha-fingerprint';
+import type { RequestRiskResult } from './request-risk';
+
+export const DEFAULT_CAPTCHA_RESOURCES = {
+  js: '/captcha/client.js',
+  css: '/captcha/client.css',
+} as const;
 
 export interface ChallengeSession {
   id: string;
@@ -11,6 +17,8 @@ export interface ChallengeSession {
   expiresAt: number;
   userAgent: string;
   riskScore: number;
+  reasons: string[];
+  recommendedAction?: string;
   isChallenged: boolean;
   resourcesLoadTracker: {
     jsLoaded: Set<string>;
@@ -44,6 +52,7 @@ export interface DispatchChallengeOptions {
   rateLimit?: boolean;
   hardThreshold?: number;
   softThreshold?: number;
+  risk?: RequestRiskResult;
 }
 
 /**
@@ -58,17 +67,23 @@ export function dispatchChallenge(
   severity: 'low' | 'medium' | 'high';
   reason: string;
 } {
-  const { headers, userAgent, rateLimit, hardThreshold, softThreshold } = options;
+  const { headers, userAgent, rateLimit, hardThreshold, softThreshold, risk } = options;
 
   // Analyze the fingerprint
   const fingerprint = analyzeFingerprint(userAgent, headers);
 
   // Determine if challenge is needed
-  const decision = shouldChallenge(fingerprint, {
-    rateLimit,
-    hardThreshold,
-    softThreshold,
-  });
+  const decision = risk
+    ? {
+        shouldChallenge: risk.shouldChallenge,
+        reason: risk.reasons.length ? risk.reasons.join(', ') : `Risk score ${risk.riskScore}`,
+        severity: risk.severity,
+      }
+    : shouldChallenge(fingerprint, {
+        rateLimit,
+        hardThreshold,
+        softThreshold,
+      });
 
   // Create or retrieve session
   const sessionId = generateSessionId();
@@ -77,7 +92,9 @@ export function dispatchChallenge(
     timestamp: Date.now(),
     expiresAt: Date.now() + 15 * 60 * 1000, // 15 minute expiry
     userAgent,
-    riskScore: fingerprint.riskScore,
+    riskScore: risk?.riskScore ?? fingerprint.riskScore,
+    reasons: risk?.reasons ?? fingerprint.reasons,
+    recommendedAction: risk?.recommendedAction,
     isChallenged: decision.shouldChallenge,
     resourcesLoadTracker: {
       jsLoaded: new Set(),
@@ -134,7 +151,7 @@ export function recordResourceLoad(
  */
 export function verifyResourceLoads(
   sessionId: string,
-  expectedResources: { js: string; css: string },
+  expectedResources: { js: string; css: string } = DEFAULT_CAPTCHA_RESOURCES,
 ): {
   passed: boolean;
   jsLoaded: boolean;

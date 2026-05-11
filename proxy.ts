@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { dispatchChallenge } from '@/lib/captcha-dispatcher';
+import { evaluateRequestRisk } from '@/lib/request-risk';
+import { formatRiskReasons, trackCaptchaMonitoringEvent } from '@/lib/captcha-monitoring';
 
 const POSTHOG_PROJECT_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://eu.i.posthog.com';
@@ -124,12 +126,40 @@ async function isVerifiedCrawler(request: NextRequest): Promise<boolean> {
   return verifyCrawlerIp(ip, rule.domains);
 }
 
+function collectRiskHeaders(request: NextRequest, userAgent: string): Record<string, string | undefined> {
+  return {
+    'user-agent': userAgent,
+    'accept-language': request.headers.get('accept-language') ?? '',
+    'accept-encoding': request.headers.get('accept-encoding') ?? '',
+    'accept': request.headers.get('accept') ?? '',
+    'sec-ch-ua': request.headers.get('sec-ch-ua') ?? '',
+    'sec-ch-ua-mobile': request.headers.get('sec-ch-ua-mobile') ?? '',
+    'sec-ch-ua-platform': request.headers.get('sec-ch-ua-platform') ?? '',
+    'sec-fetch-site': request.headers.get('sec-fetch-site') ?? '',
+    'sec-fetch-mode': request.headers.get('sec-fetch-mode') ?? '',
+    'sec-fetch-dest': request.headers.get('sec-fetch-dest') ?? '',
+    'referer': request.headers.get('referer') ?? '',
+    'origin': request.headers.get('origin') ?? '',
+    'x-forwarded-for': request.headers.get('x-forwarded-for') ?? '',
+    'x-forwarded-host': request.headers.get('x-forwarded-host') ?? '',
+    'x-real-ip': request.headers.get('x-real-ip') ?? '',
+    'cf-ray': request.headers.get('cf-ray') ?? '',
+    'cf-connecting-ip': request.headers.get('cf-connecting-ip') ?? '',
+    'via': request.headers.get('via') ?? '',
+  };
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const allowDebugFlag = process.env.CAPTCHA_DEBUG_FLAG === 'true' || process.env.NODE_ENV !== 'production';
   const captchaDebugFlag = allowDebugFlag && request.nextUrl.searchParams.get('captcha') === 'show';
   captureProxyEvent('proxy_request', {
     pathname,
+    captcha_debug: captchaDebugFlag,
+  });
+  trackCaptchaMonitoringEvent('captcha_proxy_request_checked', {
+    pathname,
+    method: request.method,
     captcha_debug: captchaDebugFlag,
   });
 
@@ -142,6 +172,11 @@ export async function proxy(request: NextRequest) {
     captureProxyEvent('proxy_allow', {
       reason: 'captcha_disabled',
       pathname,
+    });
+    trackCaptchaMonitoringEvent('captcha_proxy_bypassed', {
+      reason: 'captcha_disabled',
+      pathname,
+      method: request.method,
     });
     return NextResponse.next();
   }
@@ -160,6 +195,11 @@ export async function proxy(request: NextRequest) {
       reason: 'excluded_path',
       pathname,
     });
+    trackCaptchaMonitoringEvent('captcha_proxy_bypassed', {
+      reason: 'excluded_path',
+      pathname,
+      method: request.method,
+    });
     return NextResponse.next();
   }
 
@@ -168,6 +208,11 @@ export async function proxy(request: NextRequest) {
     captureProxyEvent('proxy_allow', {
       reason: 'verified_crawler',
       pathname,
+    });
+    trackCaptchaMonitoringEvent('captcha_proxy_bypassed', {
+      reason: 'verified_crawler',
+      pathname,
+      method: request.method,
     });
     return NextResponse.next();
   }
@@ -180,47 +225,46 @@ export async function proxy(request: NextRequest) {
     severity: null as 'low' | 'medium' | 'high' | null,
     riskScore: 0,
     shouldChallenge: false,
+    recommendedAction: 'allow',
+    routeGroup: 'unknown',
+    reasons: [] as string[],
   };
 
   if (antiAbuseEnabled) {
     const userAgent = request.headers.get('user-agent') ?? '';
-    
-    // Collect all relevant headers for fingerprint analysis
-    const headers: Record<string, string | undefined> = {
-      'user-agent': userAgent,
-      'accept-language': request.headers.get('accept-language') ?? '',
-      'accept-encoding': request.headers.get('accept-encoding') ?? '',
-      'accept': request.headers.get('accept') ?? '',
-      'sec-ch-ua': request.headers.get('sec-ch-ua') ?? '',
-      'sec-ch-ua-mobile': request.headers.get('sec-ch-ua-mobile') ?? '',
-      'sec-ch-ua-platform': request.headers.get('sec-ch-ua-platform') ?? '',
-      'sec-fetch-site': request.headers.get('sec-fetch-site') ?? '',
-      'sec-fetch-mode': request.headers.get('sec-fetch-mode') ?? '',
-      'sec-fetch-dest': request.headers.get('sec-fetch-dest') ?? '',
-      'referer': request.headers.get('referer') ?? '',
-      'origin': request.headers.get('origin') ?? '',
-      'x-forwarded-for': request.headers.get('x-forwarded-for') ?? '',
-      'x-forwarded-host': request.headers.get('x-forwarded-host') ?? '',
-      'x-real-ip': request.headers.get('x-real-ip') ?? '',
-      'cf-ray': request.headers.get('cf-ray') ?? '',
-      'cf-connecting-ip': request.headers.get('cf-connecting-ip') ?? '',
-      'via': request.headers.get('via') ?? '',
-    };
+    const headers = collectRiskHeaders(request, userAgent);
+    const verificationToken = request.cookies.get('__ribaunt_verification_key')?.value;
+    const captchaThreshold = parseInt(process.env.CAPTCHA_HARD_THRESHOLD ?? '55', 10);
+    const risk = evaluateRequestRisk({
+      method: request.method,
+      pathname,
+      headers,
+      userAgent,
+      ip: getClientIp(request),
+      sessionToken: request.cookies.get('session-token')?.value ?? null,
+      deviceId: request.cookies.get('device-id')?.value ?? null,
+      hasAuthToken: Boolean(request.cookies.get('auth-token')?.value),
+      hasCaptchaToken: Boolean(verificationToken),
+      captchaThreshold,
+    });
 
     // Dispatch anti-abuse challenge analysis
     const challenge = dispatchChallenge({
       headers,
       userAgent,
-      hardThreshold: parseInt(process.env.CAPTCHA_HARD_THRESHOLD ?? '60'),
+      hardThreshold: captchaThreshold,
       softThreshold: parseInt(process.env.CAPTCHA_SOFT_THRESHOLD ?? '40'),
+      risk,
     });
 
     antiAbuseInfo = {
       sessionId: challenge.sessionId,
-      severity: challenge.shouldChallenge ? challenge.severity : null,
-      riskScore: challenge.shouldChallenge ? 
-        (challenge.severity === 'high' ? 70 : challenge.severity === 'medium' ? 50 : 30) : 0,
+      severity: risk.severity,
+      riskScore: risk.riskScore,
       shouldChallenge: challenge.shouldChallenge,
+      recommendedAction: risk.recommendedAction,
+      routeGroup: risk.routeGroup,
+      reasons: risk.reasons,
     };
 
     captureProxyEvent('anti_abuse_analysis', {
@@ -228,15 +272,44 @@ export async function proxy(request: NextRequest) {
       risk_score: antiAbuseInfo.riskScore,
       should_challenge: antiAbuseInfo.shouldChallenge,
       session_id: antiAbuseInfo.sessionId,
+      action: antiAbuseInfo.recommendedAction,
+      route_group: antiAbuseInfo.routeGroup,
+      reason_count: antiAbuseInfo.reasons.length,
     }, antiAbuseInfo.sessionId ?? 'proxy');
+    trackCaptchaMonitoringEvent('captcha_risk_evaluated', {
+      pathname,
+      method: request.method,
+      session_id: antiAbuseInfo.sessionId,
+      severity: antiAbuseInfo.severity ?? 'low',
+      risk_score: antiAbuseInfo.riskScore,
+      should_challenge: antiAbuseInfo.shouldChallenge,
+      action: antiAbuseInfo.recommendedAction,
+      route_group: antiAbuseInfo.routeGroup,
+      reason_count: antiAbuseInfo.reasons.length,
+      reason_codes: formatRiskReasons(antiAbuseInfo.reasons),
+      has_auth_token: Boolean(request.cookies.get('auth-token')?.value),
+      has_session_token: Boolean(request.cookies.get('session-token')?.value),
+      has_device_id: Boolean(request.cookies.get('device-id')?.value),
+      has_captcha_token: Boolean(verificationToken),
+    }, antiAbuseInfo.sessionId ?? 'captcha_risk');
 
     // If high risk detected, log details
     if (challenge.shouldChallenge) {
       captureProxyEvent('anti_abuse_challenge_reason', {
-        reason: challenge.reason,
+        reason: challenge.reason.slice(0, 500),
         severity: antiAbuseInfo.severity ?? 'unknown',
         session_id: antiAbuseInfo.sessionId,
       }, antiAbuseInfo.sessionId ?? 'proxy');
+      trackCaptchaMonitoringEvent('captcha_challenge_required', {
+        pathname,
+        method: request.method,
+        session_id: antiAbuseInfo.sessionId,
+        severity: antiAbuseInfo.severity ?? 'unknown',
+        risk_score: antiAbuseInfo.riskScore,
+        action: antiAbuseInfo.recommendedAction,
+        route_group: antiAbuseInfo.routeGroup,
+        reason_codes: formatRiskReasons(antiAbuseInfo.reasons),
+      }, antiAbuseInfo.sessionId ?? 'captcha_challenge');
     }
   }
 
@@ -246,12 +319,25 @@ export async function proxy(request: NextRequest) {
       severity: 'high',
       riskScore: 99,
       shouldChallenge: true,
+      recommendedAction: 'captcha',
+      routeGroup: 'debug',
+      reasons: ['debug_flag'],
     };
 
     captureProxyEvent('proxy_debug_challenge', {
       reason: 'debug_flag',
       session_id: antiAbuseInfo.sessionId,
     }, antiAbuseInfo.sessionId ?? 'proxy');
+    trackCaptchaMonitoringEvent('captcha_challenge_required', {
+      pathname,
+      method: request.method,
+      session_id: antiAbuseInfo.sessionId,
+      severity: 'high',
+      risk_score: antiAbuseInfo.riskScore,
+      action: antiAbuseInfo.recommendedAction,
+      route_group: antiAbuseInfo.routeGroup,
+      reason_codes: 'debug_flag',
+    }, antiAbuseInfo.sessionId ?? 'captcha_debug');
   }
 
   // ========================================================================
@@ -265,8 +351,15 @@ export async function proxy(request: NextRequest) {
     has_token: !!verificationToken,
     pathname,
   });
+  trackCaptchaMonitoringEvent('captcha_token_presence_checked', {
+    pathname,
+    method: request.method,
+    has_token: Boolean(verificationToken),
+    session_id: antiAbuseInfo.sessionId,
+    risk_score: antiAbuseInfo.riskScore,
+  }, antiAbuseInfo.sessionId ?? 'captcha_token');
 
-  // If user has a valid token, allow access (even if anti-abuse flagged them)
+  // If user has a valid token, allow access only while current behavior stays below the CAPTCHA threshold.
   if (verificationToken && !captchaDebugFlag) {
     try {
       const secret = new TextEncoder().encode(process.env.RIBAUNT_SECRET!);
@@ -278,15 +371,47 @@ export async function proxy(request: NextRequest) {
       }
       
       await jwtVerify(verificationToken, secret);
-      captureProxyEvent('proxy_allow', {
-        reason: 'token_valid',
-        pathname,
-      });
-      return NextResponse.next();
+      if (antiAbuseEnabled && antiAbuseInfo.shouldChallenge) {
+        captureProxyEvent('proxy_token_valid_but_risky', {
+          pathname,
+          risk_score: antiAbuseInfo.riskScore,
+          severity: antiAbuseInfo.severity ?? 'unknown',
+          action: antiAbuseInfo.recommendedAction,
+          session_id: antiAbuseInfo.sessionId,
+        }, antiAbuseInfo.sessionId ?? 'proxy');
+        trackCaptchaMonitoringEvent('captcha_token_rechallenged', {
+          pathname,
+          method: request.method,
+          session_id: antiAbuseInfo.sessionId,
+          risk_score: antiAbuseInfo.riskScore,
+          severity: antiAbuseInfo.severity ?? 'unknown',
+          action: antiAbuseInfo.recommendedAction,
+          route_group: antiAbuseInfo.routeGroup,
+          reason_codes: formatRiskReasons(antiAbuseInfo.reasons),
+        }, antiAbuseInfo.sessionId ?? 'captcha_token');
+      } else {
+        captureProxyEvent('proxy_allow', {
+          reason: 'token_valid',
+          pathname,
+        });
+        trackCaptchaMonitoringEvent('captcha_request_allowed', {
+          reason: 'token_valid',
+          pathname,
+          method: request.method,
+          session_id: antiAbuseInfo.sessionId,
+          risk_score: antiAbuseInfo.riskScore,
+        }, antiAbuseInfo.sessionId ?? 'captcha_allow');
+        return NextResponse.next();
+      }
     } catch (error) {
       captureProxyEvent('proxy_token_invalid', {
         pathname,
       });
+      trackCaptchaMonitoringEvent('captcha_token_invalid', {
+        pathname,
+        method: request.method,
+        session_id: antiAbuseInfo.sessionId,
+      }, antiAbuseInfo.sessionId ?? 'captcha_token');
       // Token is invalid or expired, clear it and show captcha
       // Fall through to show captcha page
     }
@@ -303,6 +428,15 @@ export async function proxy(request: NextRequest) {
       pathname,
       session_id: antiAbuseInfo.sessionId,
     }, antiAbuseInfo.sessionId ?? 'proxy');
+    trackCaptchaMonitoringEvent('captcha_request_allowed', {
+      reason: 'low_risk',
+      pathname,
+      method: request.method,
+      session_id: antiAbuseInfo.sessionId,
+      risk_score: antiAbuseInfo.riskScore,
+      severity: antiAbuseInfo.severity ?? 'low',
+      route_group: antiAbuseInfo.routeGroup,
+    }, antiAbuseInfo.sessionId ?? 'captcha_allow');
     return NextResponse.next();
   }
 
@@ -312,7 +446,20 @@ export async function proxy(request: NextRequest) {
     pathname,
     session_id: antiAbuseInfo.sessionId,
     severity: antiAbuseInfo.severity ?? 'unknown',
+    risk_score: antiAbuseInfo.riskScore,
+    action: antiAbuseInfo.recommendedAction,
+    route_group: antiAbuseInfo.routeGroup,
   }, antiAbuseInfo.sessionId ?? 'proxy');
+  trackCaptchaMonitoringEvent('captcha_ribaunt_page_shown', {
+    pathname,
+    method: request.method,
+    session_id: antiAbuseInfo.sessionId,
+    severity: antiAbuseInfo.severity ?? 'unknown',
+    risk_score: antiAbuseInfo.riskScore,
+    action: antiAbuseInfo.recommendedAction,
+    route_group: antiAbuseInfo.routeGroup,
+    reason_codes: formatRiskReasons(antiAbuseInfo.reasons),
+  }, antiAbuseInfo.sessionId ?? 'captcha_page');
   const url = request.nextUrl.clone();
   url.pathname = '/captcha';
   url.searchParams.set('returnUrl', pathname);
@@ -323,6 +470,7 @@ export async function proxy(request: NextRequest) {
     if (antiAbuseInfo.severity) {
       url.searchParams.set('severity', antiAbuseInfo.severity);
     }
+    url.searchParams.set('riskScore', antiAbuseInfo.riskScore.toString());
     
     // Log if this is a high-risk challenge
     if (antiAbuseInfo.severity === 'high') {
