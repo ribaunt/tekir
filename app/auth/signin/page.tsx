@@ -64,7 +64,7 @@ export default function SignInPage() {
           setTimeout(() => {
             window.removeEventListener('auth-login-confirmed', handleAuthConfirmed);
             resolve(false);
-          }, 1000);
+          }, 5000);
         });
 
         // Redirect after auth is confirmed

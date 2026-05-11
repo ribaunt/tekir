@@ -59,12 +59,18 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   const isCheckingRef = useRef(false); // Use ref instead of state to prevent re-renders
   const lastCheckTimeRef = useRef(0); // Track last check time to prevent spam
   const initialCheckDoneRef = useRef(false); // Track if initial check completed
-  const pendingAuthCheckRef = useRef<(() => void) | null>(null); // Store pending auth check
+  const pendingAuthCheckRef = useRef<(() => void) | null>(null); // Store pending forced auth check
   const authCheckPromiseRef = useRef<{ resolve: (value: boolean) => void; reject: (reason?: any) => void } | null>(null); // For promise-based auth checks
 
   const checkAuthStatus = useCallback(async (force = false, retryCount = 0) => {
     // Prevent multiple simultaneous auth checks
     if (isCheckingRef.current) {
+      if (force) {
+        pendingAuthCheckRef.current = () => {
+          void checkAuthStatus(true);
+        };
+        setStatus("loading");
+      }
       return;
     }
 
@@ -137,7 +143,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
           initialCheckDoneRef.current = true;
 
           // Resolve any pending auth check promise
-          if (authCheckPromiseRef.current) {
+          if (authCheckPromiseRef.current && !pendingAuthCheckRef.current) {
             authCheckPromiseRef.current.resolve(true);
           }
         } else {
@@ -148,7 +154,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
           initialCheckDoneRef.current = true;
 
           // Resolve any pending auth check promise (not authenticated)
-          if (authCheckPromiseRef.current) {
+          if (authCheckPromiseRef.current && !pendingAuthCheckRef.current) {
             authCheckPromiseRef.current.resolve(false);
           }
         }
@@ -160,7 +166,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
         initialCheckDoneRef.current = true;
 
         // Resolve any pending auth check promise (not authenticated)
-        if (authCheckPromiseRef.current) {
+        if (authCheckPromiseRef.current && !pendingAuthCheckRef.current) {
           authCheckPromiseRef.current.resolve(false);
         }
       }
@@ -195,46 +201,23 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       initialCheckDoneRef.current = true;
 
       // Resolve any pending auth check promise (not authenticated on error)
-      if (authCheckPromiseRef.current) {
+      if (authCheckPromiseRef.current && !pendingAuthCheckRef.current) {
         authCheckPromiseRef.current.resolve(false);
       }
     } finally {
       isCheckingRef.current = false;
+
+      const pendingAuthCheck = pendingAuthCheckRef.current;
+      if (pendingAuthCheck) {
+        pendingAuthCheckRef.current = null;
+        pendingAuthCheck();
+      }
     }
   }, []); // No dependencies to prevent recreation
 
   useEffect(() => {
-    // Define auth check function that will be called
-    const doAuthCheck = () => {
-      checkAuthStatus(true);
-    };
+    let sessionTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    // Check if session is already registered (from sessionStorage flag set by client-layout)
-    if ((window as any).__sessionRegistered) {
-      // Session already registered, proceed with auth check
-      doAuthCheck();
-    } else {
-      // Session not registered yet - wait for the event
-      // This prevents race condition where auth check runs before session is ready
-      const handleSessionRegistered = () => {
-        doAuthCheck();
-      };
-
-      window.addEventListener('session-registered', handleSessionRegistered, { once: true });
-
-      // Also set up a timeout fallback (in case event never fires)
-      const timeoutId = setTimeout(() => {
-        window.removeEventListener('session-registered', handleSessionRegistered);
-        doAuthCheck();
-      }, 2000); // 2 second fallback timeout
-
-      return () => {
-        window.removeEventListener('session-registered', handleSessionRegistered);
-        clearTimeout(timeoutId);
-      };
-    }
-
-    // Listen for custom authentication events only
     const handleAuthLogin = async () => {
       // Create a promise that resolves when auth check completes
       const authPromise = new Promise<boolean>((resolve, reject) => {
@@ -261,6 +244,10 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    const doAuthCheck = () => {
+      checkAuthStatus(true);
+    };
+
     const handleAuthLoginEvent = async () => {
       const isAuthenticated = await handleAuthLogin();
       // Dispatch confirmation event with the result
@@ -276,9 +263,29 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener('auth-login', handleAuthLoginEvent);
     window.addEventListener('auth-logout', handleAuthLogout);
 
+    // Check if session is already registered (from sessionStorage flag set by client-layout)
+    if ((window as any).__sessionRegistered) {
+      // Session already registered, proceed with auth check
+      doAuthCheck();
+    } else {
+      // Session not registered yet - wait for the event
+      // This prevents race condition where auth check runs before session is ready
+      window.addEventListener('session-registered', doAuthCheck, { once: true });
+
+      // Also set up a timeout fallback (in case event never fires)
+      sessionTimeoutId = setTimeout(() => {
+        window.removeEventListener('session-registered', doAuthCheck);
+        doAuthCheck();
+      }, 2000); // 2 second fallback timeout
+    }
+
     return () => {
       window.removeEventListener('auth-login', handleAuthLoginEvent);
       window.removeEventListener('auth-logout', handleAuthLogout);
+      window.removeEventListener('session-registered', doAuthCheck);
+      if (sessionTimeoutId) {
+        clearTimeout(sessionTimeoutId);
+      }
     };
   }, [checkAuthStatus]); // Depend on stable callback
 

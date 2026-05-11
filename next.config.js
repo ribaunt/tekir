@@ -19,7 +19,7 @@ const contentSecurityPolicy = (isDev
   `
   : `
     default-src 'self';
-    script-src 'self' 'unsafe-inline' https://*.ribaunt.com;
+    script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.ribaunt.com;
     script-src-attr 'none';
     style-src 'self' 'unsafe-inline';
     img-src 'self' data: https: blob: https://api.dicebear.com https://i.ytimg.com https://upload.wikimedia.org https://imgs.search.brave.com;
@@ -110,6 +110,14 @@ const nextConfig = {
       {
         source: '/metadata/click-signals.js',
         destination: 'https://eu-assets.i.posthog.com/static/dead-clicks-autocapture.js',
+      },
+      {
+        source: '/metadata/posthog-recorder.js.map',
+        destination: 'https://eu-assets.i.posthog.com/static/posthog-recorder.js.map',
+      },
+      {
+        source: '/metadata/dead-clicks-autocapture.js.map',
+        destination: 'https://eu-assets.i.posthog.com/static/dead-clicks-autocapture.js.map',
       },
       {
         source: '/metadata/static/:path*',
