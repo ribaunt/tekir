@@ -7,6 +7,7 @@ export const CHEYN_PLUS_DISPLAY_CURRENCY = process.env.CHEYN_PLUS_DISPLAY_CURREN
 
 export const cheynConfig = {
   apiBaseUrl: process.env.CHEYN_API_BASE_URL || "https://cheyn.ribaunt.com",
+  checkoutPath: process.env.CHEYN_CHECKOUT_PATH || "/api/v1/me/checkouts",
   apiKey: process.env.CHEYN_API_KEY || "",
   storeId: process.env.CHEYN_STORE_ID || "",
   webhookSecret: process.env.CHEYN_WEBHOOK_SECRET || "",
@@ -77,17 +78,19 @@ export async function createCheynPlusCheckout({
     storeId: cheynConfig.storeId,
     amount: CHEYN_PLUS_DISPLAY_AMOUNT,
     currency: CHEYN_PLUS_DISPLAY_CURRENCY,
+    username: userId,
     metadata: {
       orderId,
       userId,
+      username: userId,
       plan: "tekir_plus",
       durationDays: String(CHEYN_PLUS_DURATION_DAYS),
     },
-    successUrl: `${origin}/plus/callback/monero`,
-    cancelUrl: `${origin}/settings/account`,
+    successUrl: `${origin}/callback/monero`,
+    cancelUrl: `${origin}/callback/monero/cancel`,
   };
 
-  const response = await fetch(`${cheynConfig.apiBaseUrl.replace(/\/$/, "")}/v1/checkouts`, {
+  const response = await fetch(`${cheynConfig.apiBaseUrl.replace(/\/$/, "")}${cheynConfig.checkoutPath}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${cheynConfig.apiKey}`,
