@@ -13,6 +13,7 @@ export const cheynConfig = {
 };
 
 export type CheynCheckoutStatus =
+  | "waiting_for_payment"
   | "pending"
   | "underpaid"
   | "paid"
@@ -102,7 +103,15 @@ export async function createCheynPlusCheckout({
   }
 
   const checkoutId = data?.id || data?.checkoutId;
-  if (!checkoutId || !data?.checkoutUrl || !data?.amountAtomic) {
+  const checkoutUrl = data?.checkoutUrl || data?.url;
+  const amountAtomic = data?.amountAtomic;
+  if (!checkoutId || !checkoutUrl || !amountAtomic) {
+    logCheynEvent("checkout_invalid_response", {
+      response_keys: data && typeof data === "object" ? Object.keys(data).join(",") : "",
+      has_checkout_id: Boolean(checkoutId),
+      has_checkout_url: Boolean(checkoutUrl),
+      has_amount_atomic: Boolean(amountAtomic),
+    });
     throw new Error("Cheyn returned an invalid checkout response");
   }
 
@@ -110,6 +119,19 @@ export async function createCheynPlusCheckout({
     ...data,
     id: checkoutId,
     checkoutId,
+    storeId: data.storeId || cheynConfig.storeId,
+    status: data.status || "pending",
+    amountAtomic,
+    currency: data.currency || "XMR",
+    checkoutUrl,
+    pricing: data.pricing ?? {
+      displayAmount: CHEYN_PLUS_DISPLAY_AMOUNT,
+      displayCurrency: CHEYN_PLUS_DISPLAY_CURRENCY,
+      amountUsdCents: data.amountUsdCents,
+      pricingCurrency: data.pricingCurrency,
+      xmrUsdPriceDecimal: data.xmrUsdPriceDecimal,
+      xmrUsdPriceMicro: data.xmrUsdPriceMicro,
+    },
   } as CheynCheckoutResponse;
 }
 
