@@ -65,6 +65,7 @@ export default defineSchema({
     settingsSync: v.boolean(),
     settings: v.optional(v.any()), // JSON settings
     polarCustomerId: v.optional(v.string()), // Polar.sh customer ID for subscription management
+    cheynPlusExpiresAt: v.optional(v.number()), // Prepaid Cheyn Plus access expiry timestamp
     createdAt: v.number(), // Unix timestamp
     updatedAt: v.number(), // Unix timestamp
   })
@@ -141,4 +142,35 @@ export default defineSchema({
   })
     .index("by_key", ["key"])
     .index("by_windowStart", ["windowStart"]),
+
+  cheynCheckouts: defineTable({
+    checkoutId: v.string(),
+    userId: v.id("users"),
+    storeId: v.string(),
+    orderId: v.string(),
+    status: v.string(),
+    amountAtomic: v.string(),
+    receivedAtomic: v.optional(v.string()),
+    currency: v.string(),
+    txHash: v.optional(v.string()),
+    pricing: v.optional(v.any()),
+    checkoutUrl: v.optional(v.string()),
+    expiresAt: v.optional(v.string()),
+    plusAccessExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_checkoutId", ["checkoutId"])
+    .index("by_userId", ["userId"])
+    .index("by_orderId", ["orderId"]),
+
+  cheynWebhookEvents: defineTable({
+    eventId: v.string(),
+    checkoutId: v.optional(v.string()),
+    storeId: v.optional(v.string()),
+    type: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_eventId", ["eventId"])
+    .index("by_checkoutId", ["checkoutId"]),
 });

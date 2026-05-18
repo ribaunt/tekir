@@ -83,9 +83,35 @@ async function POSTHandler(req: NextRequest) {
 
     for (const user of paidUsers) {
       processed++;
+
+      if (typeof user.cheynPlusExpiresAt === 'number' && user.cheynPlusExpiresAt > Date.now()) {
+        logPolarEvent('active_cheyn_prepaid_access', {}, user._id);
+        continue;
+      }
       
-      // Skip users without a Polar customer ID - they might have been granted access manually
       if (!user.polarCustomerId) {
+        if (typeof user.cheynPlusExpiresAt === 'number' && user.cheynPlusExpiresAt <= Date.now()) {
+          logPolarEvent('expired_cheyn_prepaid_access', {}, user._id);
+
+          const currentRoles = user.roles || [];
+          const newRoles = currentRoles.filter(
+            (r: string) => r.toLowerCase() !== 'paid'
+          );
+
+          if (newRoles.length !== currentRoles.length) {
+            await convex.mutation(api.users.updateUserRoles, {
+              id: user._id as Id<'users'>,
+              roles: newRoles,
+              cronSecret: cronSecret ?? undefined,
+            });
+
+            revoked++;
+            logPolarEvent('revoked_expired_cheyn_paid_role', {}, user._id);
+          }
+          continue;
+        }
+
+        // Skip users without a Polar customer ID - they might have been granted access manually.
         logPolarEvent('missing_polar_customer_id', {}, user._id);
         continue;
       }

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Check, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { Check, CreditCard, Loader2, RefreshCw, Sparkles, Wallet } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 interface SubscriptionCardProps {
@@ -24,7 +24,8 @@ export default function SubscriptionCard({
 }: SubscriptionCardProps) {
   const { user } = useAuth();
   const t = useTranslations('subscription');
-  const [loading, setLoading] = useState(false);
+  const [cardLoading, setCardLoading] = useState(false);
+  const [moneroLoading, setMoneroLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
@@ -42,7 +43,7 @@ export default function SubscriptionCard({
   ];
 
   const handleUpgrade = async () => {
-    setLoading(true);
+    setCardLoading(true);
     setError(null);
 
     try {
@@ -67,7 +68,33 @@ export default function SubscriptionCard({
     } catch (err) {
       console.error('Upgrade error:', err);
       setError(err instanceof Error ? err.message : t('errors.upgradeFailed'));
-      setLoading(false);
+      setCardLoading(false);
+    }
+  };
+
+  const handleMoneroUpgrade = async () => {
+    setMoneroLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/cheyn/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || t('errors.checkoutFailed'));
+      }
+
+      window.location.href = data.checkoutUrl;
+    } catch (err) {
+      console.error('Monero upgrade error:', err);
+      setError(err instanceof Error ? err.message : t('errors.upgradeFailed'));
+      setMoneroLoading(false);
     }
   };
 
@@ -165,28 +192,47 @@ export default function SubscriptionCard({
             {error}
           </div>
         )}
-        <div className="flex w-full gap-2">
+        <div className="flex w-full flex-col gap-2 sm:flex-row">
           <Button
             onClick={handleUpgrade}
-            disabled={loading || refreshing || !user}
+            disabled={cardLoading || moneroLoading || refreshing || !user}
             className="flex-1"
             size="lg"
           >
-            {loading ? (
+            {cardLoading ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 {t('actions.loading')}
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4 mr-2" />
-                {t('actions.upgradeToPro')}
+                <CreditCard className="w-4 h-4 mr-2" />
+                Pay with card
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={handleMoneroUpgrade}
+            disabled={cardLoading || moneroLoading || refreshing || !user}
+            className="flex-1"
+            variant="outline"
+            size="lg"
+          >
+            {moneroLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                {t('actions.loading')}
+              </>
+            ) : (
+              <>
+                <Wallet className="w-4 h-4 mr-2" />
+                Pay with Monero
               </>
             )}
           </Button>
           <Button
             onClick={handleRefreshStatus}
-            disabled={loading || refreshing || !user}
+            disabled={cardLoading || moneroLoading || refreshing || !user}
             variant="outline"
             size="lg"
             className="shrink-0"

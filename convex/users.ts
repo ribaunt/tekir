@@ -132,6 +132,7 @@ export const updateUser = mutation({
     settingsSync: v.optional(v.boolean()),
     settings: v.optional(v.any()),
     polarCustomerId: v.optional(v.string()),
+    cheynPlusExpiresAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     // Authentication is handled by API routes via getJWTUser() before calling this mutation.
@@ -151,6 +152,33 @@ export const updateUser = mutation({
 
     return await ctx.db.patch(id, {
       ...updates,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const grantCheynPlusAccess = mutation({
+  args: {
+    id: v.id("users"),
+    plusAccessExpiresAt: v.number(),
+    cronSecret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireCronSecret(args.cronSecret);
+
+    const user = await ctx.db.get(args.id);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const currentRoles = user.roles ?? [];
+    const hasPaid = currentRoles.some((role: string) => role.toLowerCase() === "paid");
+    const roles = hasPaid ? currentRoles : [...currentRoles, "paid"];
+    const existingExpiry = user.cheynPlusExpiresAt ?? 0;
+
+    return await ctx.db.patch(args.id, {
+      roles,
+      cheynPlusExpiresAt: Math.max(existingExpiry, args.plusAccessExpiresAt),
       updatedAt: Date.now(),
     });
   },

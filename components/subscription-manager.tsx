@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Check, Loader2, Sparkles, CreditCard, Calendar, AlertCircle, RefreshCw } from 'lucide-react';
+import { Check, Loader2, Sparkles, CreditCard, Calendar, AlertCircle, RefreshCw, Wallet } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import posthog from 'posthog-js';
 
@@ -37,7 +37,8 @@ export default function SubscriptionManager({
 }: SubscriptionManagerProps) {
   const { user } = useAuth();
   const t = useTranslations('subscription');
-  const [loading, setLoading] = useState(false);
+  const [cardLoading, setCardLoading] = useState(false);
+  const [moneroLoading, setMoneroLoading] = useState(false);
   const [checkingSubscription, setCheckingSubscription] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
@@ -97,7 +98,7 @@ export default function SubscriptionManager({
   };
 
   const handleUpgrade = async () => {
-    setLoading(true);
+    setCardLoading(true);
     setError(null);
 
     try {
@@ -127,7 +128,38 @@ export default function SubscriptionManager({
     } catch (err) {
       console.error('Upgrade error:', err);
       setError(err instanceof Error ? err.message : t('errors.upgradeFailed'));
-      setLoading(false);
+      setCardLoading(false);
+    }
+  };
+
+  const handleMoneroUpgrade = async () => {
+    setMoneroLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/cheyn/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || t('errors.checkoutFailed'));
+      }
+
+      posthog.capture('subscription_checkout_started', {
+        payment_method: 'monero',
+        provider: 'cheyn',
+      });
+
+      window.location.href = data.checkoutUrl;
+    } catch (err) {
+      console.error('Monero upgrade error:', err);
+      setError(err instanceof Error ? err.message : t('errors.upgradeFailed'));
+      setMoneroLoading(false);
     }
   };
 
@@ -267,28 +299,47 @@ export default function SubscriptionManager({
               <span>{error}</span>
             </div>
           )}
-          <div className="flex w-full gap-2">
+          <div className="flex w-full flex-col gap-2 sm:flex-row">
             <Button
               onClick={handleUpgrade}
-              disabled={loading || refreshingStatus || !user}
+              disabled={cardLoading || moneroLoading || refreshingStatus || !user}
               className="flex-1"
               size="lg"
             >
-              {loading ? (
+              {cardLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   {t('actions.loading')}
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  {t('actions.upgrade')}
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Pay with card
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={handleMoneroUpgrade}
+              disabled={cardLoading || moneroLoading || refreshingStatus || !user}
+              className="flex-1"
+              variant="outline"
+              size="lg"
+            >
+              {moneroLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {t('actions.loading')}
+                </>
+              ) : (
+                <>
+                  <Wallet className="w-4 h-4 mr-2" />
+                  Pay with Monero
                 </>
               )}
             </Button>
             <Button
               onClick={handleRefreshStatus}
-              disabled={loading || refreshingStatus || !user}
+              disabled={cardLoading || moneroLoading || refreshingStatus || !user}
               variant="outline"
               size="lg"
               className={refreshFailed ? "shrink-0 border-destructive text-destructive hover:bg-destructive/10" : "shrink-0"}

@@ -145,7 +145,7 @@ function routeGroup(pathname: string): string {
   if (pathname.startsWith('/api/session/register')) return 'session_register';
   if (pathname.startsWith('/api/session/')) return 'session';
   if (pathname.startsWith('/api/user/')) return 'account';
-  if (pathname.startsWith('/api/polar/')) return 'billing';
+  if (pathname.startsWith('/api/polar/') || pathname.startsWith('/api/cheyn/')) return 'billing';
   if (pathname.startsWith('/api/')) return 'api';
   return 'page';
 }
