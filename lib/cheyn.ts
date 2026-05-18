@@ -7,7 +7,7 @@ export const CHEYN_PLUS_DISPLAY_CURRENCY = process.env.CHEYN_PLUS_DISPLAY_CURREN
 
 export const cheynConfig = {
   apiBaseUrl: process.env.CHEYN_API_BASE_URL || "https://cheyn.ribaunt.com",
-  checkoutPath: process.env.CHEYN_CHECKOUT_PATH || "/api/v1/me/checkouts",
+  checkoutPath: process.env.CHEYN_CHECKOUT_PATH || "/api/v1/checkouts",
   apiKey: process.env.CHEYN_API_KEY || "",
   storeId: process.env.CHEYN_STORE_ID || "",
   webhookSecret: process.env.CHEYN_WEBHOOK_SECRET || "",
@@ -99,9 +99,28 @@ export async function createCheynPlusCheckout({
     body: JSON.stringify(payload),
   });
 
-  const data = await response.json().catch(() => null);
+  const responseText = await response.text();
+  const data = responseText
+    ? (() => {
+        try {
+          return JSON.parse(responseText);
+        } catch {
+          return null;
+        }
+      })()
+    : null;
   if (!response.ok) {
-    const message = typeof data?.error === "string" ? data.error : "Failed to create Cheyn checkout";
+    const message =
+      typeof data?.error === "string"
+        ? data.error
+        : typeof data?.message === "string"
+          ? data.message
+          : `Cheyn checkout failed with HTTP ${response.status}`;
+    logCheynEvent("checkout_upstream_error", {
+      status: response.status,
+      response_keys: data && typeof data === "object" ? Object.keys(data).join(",") : "",
+      response_body_preview: responseText.slice(0, 300),
+    });
     throw new Error(message);
   }
 
