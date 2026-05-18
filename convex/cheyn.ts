@@ -7,6 +7,7 @@ const STATUS_RANK: Record<string, number> = {
   underpaid: 20,
   paid: 30,
   confirming: 40,
+  "payment.verified": 50,
   payout_pending: 50,
   payout_sent: 60,
   completed: 70,

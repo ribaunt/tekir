@@ -9,6 +9,7 @@ import {
   isCheynActivationStatus,
   logCheynEvent,
   verifyCheynWebhook,
+  verifyMoneroWebhook,
 } from "@/lib/cheyn";
 import { handleAPIError } from "@/lib/api-error-tracking";
 import { withAPIObservability } from "@/lib/api-observability";
@@ -26,10 +27,16 @@ async function POSTHandler(req: NextRequest) {
     assertCheynWebhookConfig();
 
     const rawBody = await req.text();
-    const signature = req.headers.get("Cheyn-Signature");
-    if (!verifyCheynWebhook(rawBody, signature, cheynConfig.webhookSecret)) {
+    const cheynSignature = req.headers.get("Cheyn-Signature");
+    const moneroSignature = req.headers.get("x-monero-signature");
+    const signatureValid =
+      verifyCheynWebhook(rawBody, cheynSignature, cheynConfig.webhookSecret) ||
+      verifyMoneroWebhook(rawBody, moneroSignature, cheynConfig.webhookSecret);
+
+    if (!signatureValid) {
       logCheynEvent("webhook_invalid_signature", {
-        has_signature: Boolean(signature),
+        has_cheyn_signature: Boolean(cheynSignature),
+        has_monero_signature: Boolean(moneroSignature),
       });
       return NextResponse.json({ error: "Invalid signature" }, { status: 401, headers });
     }
@@ -41,18 +48,29 @@ async function POSTHandler(req: NextRequest) {
       return NextResponse.json({ error: "Malformed payload" }, { status: 400, headers });
     }
 
-    const eventId = req.headers.get("Cheyn-Event-Id") || event?.id;
-    const checkout = event?.checkout;
-    const checkoutId = checkout?.id;
-    const eventType = event?.type;
-    const storeId = event?.storeId || checkout?.storeId || req.headers.get("Cheyn-Store-Id") || undefined;
+    const nestedCheckout = event?.checkout;
+    const eventType = event?.type || event?.event;
+    const checkoutId = nestedCheckout?.id || event?.checkoutId;
+    const storeId = event?.storeId || nestedCheckout?.storeId || req.headers.get("Cheyn-Store-Id") || undefined;
+    const checkout = nestedCheckout ?? {
+      amountAtomic: event?.amountAtomic,
+      currency: event?.currency,
+      receivedAtomic: event?.receivedAtomic,
+      status: eventType === "payment.verified" ? "payment.verified" : event?.status,
+      storeId,
+      txHash: event?.txHash,
+    };
+    const eventId =
+      req.headers.get("Cheyn-Event-Id") ||
+      event?.id ||
+      (eventType && checkoutId ? `${eventType}:${checkoutId}:${event?.txHash || event?.receivedAtomic || "event"}` : undefined);
 
     if (
       !eventId ||
       !eventType ||
       !checkoutId ||
       !storeId ||
-      !checkout?.status ||
+      !checkout.status ||
       !checkout?.amountAtomic ||
       !checkout?.currency
     ) {

@@ -195,6 +195,17 @@ export function verifyCheynWebhook(rawBody: string, signatureHeader: string | nu
   return timingSafeEqualHex(expected, signature);
 }
 
+export function verifyMoneroWebhook(rawBody: string, signatureHeader: string | null, secret: string) {
+  if (!signatureHeader || !secret) return false;
+
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(rawBody)
+    .digest("hex");
+
+  return timingSafeEqualHex(expected, signatureHeader);
+}
+
 export function canonicalizeCallbackQuery(params: URLSearchParams) {
   return Array.from(params.entries())
     .filter(([key]) => key !== "signature")
@@ -221,7 +232,12 @@ export function verifyCheynCallback(url: string, secret: string) {
 }
 
 export function isCheynActivationStatus(status: string) {
-  return status === "payout_pending" || status === "payout_sent" || status === "completed";
+  return (
+    status === "payment.verified" ||
+    status === "payout_pending" ||
+    status === "payout_sent" ||
+    status === "completed"
+  );
 }
 
 export function calculatePlusExpiry(currentExpiry?: number | null) {
