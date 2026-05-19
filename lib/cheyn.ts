@@ -5,6 +5,15 @@ export const CHEYN_PLUS_DURATION_DAYS = 30;
 export const CHEYN_PLUS_DISPLAY_AMOUNT = process.env.CHEYN_PLUS_DISPLAY_AMOUNT || "5.00";
 export const CHEYN_PLUS_DISPLAY_CURRENCY = process.env.CHEYN_PLUS_DISPLAY_CURRENCY || "USD";
 
+function usdDisplayToCents(amount: string) {
+  const [dollars, cents = ""] = amount.trim().split(".");
+  if (!/^[1-9]\d*$/.test(dollars) || !/^\d{0,2}$/.test(cents)) {
+    throw new Error("CHEYN_PLUS_DISPLAY_AMOUNT must be a positive USD amount");
+  }
+
+  return `${Number(dollars) * 100 + Number(cents.padEnd(2, "0"))}`;
+}
+
 export const cheynConfig = {
   apiBaseUrl: process.env.CHEYN_API_BASE_URL || "https://cheyn.ribaunt.com",
   checkoutPath: process.env.CHEYN_CHECKOUT_PATH || "/api/v1/checkouts",
@@ -37,6 +46,30 @@ export type CheynCheckoutResponse = {
   expiresAt?: string;
   pricing?: Record<string, unknown>;
 };
+
+export class CheynCheckoutError extends Error {
+  status: number;
+  path: string;
+  responsePreview: string;
+
+  constructor({
+    message,
+    path,
+    responsePreview,
+    status,
+  }: {
+    message: string;
+    path: string;
+    responsePreview: string;
+    status: number;
+  }) {
+    super(message);
+    this.name = "CheynCheckoutError";
+    this.status = status;
+    this.path = path;
+    this.responsePreview = responsePreview;
+  }
+}
 
 export function logCheynEvent(
   event: string,
@@ -76,13 +109,10 @@ export async function createCheynPlusCheckout({
 
   const payload = {
     storeId: cheynConfig.storeId,
-    amount: CHEYN_PLUS_DISPLAY_AMOUNT,
-    currency: CHEYN_PLUS_DISPLAY_CURRENCY,
-    username: userId,
+    amountUsdCents: usdDisplayToCents(CHEYN_PLUS_DISPLAY_AMOUNT),
     metadata: {
       orderId,
       userId,
-      username: userId,
       plan: "tekir_plus",
       durationDays: String(CHEYN_PLUS_DURATION_DAYS),
     },
@@ -90,7 +120,10 @@ export async function createCheynPlusCheckout({
     cancelUrl: `${origin}/callback/monero/cancel`,
   };
 
-  const response = await fetch(`${cheynConfig.apiBaseUrl.replace(/\/$/, "")}${cheynConfig.checkoutPath}`, {
+  const checkoutPath = cheynConfig.checkoutPath.startsWith("/")
+    ? cheynConfig.checkoutPath
+    : `/${cheynConfig.checkoutPath}`;
+  const response = await fetch(`${cheynConfig.apiBaseUrl.replace(/\/$/, "")}${checkoutPath}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${cheynConfig.apiKey}`,
@@ -110,18 +143,27 @@ export async function createCheynPlusCheckout({
       })()
     : null;
   if (!response.ok) {
-    const message =
+    const upstreamMessage =
       typeof data?.error === "string"
         ? data.error
         : typeof data?.message === "string"
           ? data.message
-          : `Cheyn checkout failed with HTTP ${response.status}`;
+          : "";
+    const message = `Cheyn checkout failed with HTTP ${response.status}${upstreamMessage ? `: ${upstreamMessage}` : ""}`;
     logCheynEvent("checkout_upstream_error", {
       status: response.status,
+      path: checkoutPath,
+      has_api_key: Boolean(cheynConfig.apiKey),
+      has_store_id: Boolean(cheynConfig.storeId),
       response_keys: data && typeof data === "object" ? Object.keys(data).join(",") : "",
       response_body_preview: responseText.slice(0, 300),
     });
-    throw new Error(message);
+    throw new CheynCheckoutError({
+      message,
+      path: checkoutPath,
+      responsePreview: responseText.slice(0, 300),
+      status: response.status,
+    });
   }
 
   const checkoutId = data?.id || data?.checkoutId;

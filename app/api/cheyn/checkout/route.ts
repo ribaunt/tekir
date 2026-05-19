@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { getConvexClient } from "@/lib/convex-client";
-import { createCheynPlusCheckout, logCheynEvent } from "@/lib/cheyn";
+import { CheynCheckoutError, createCheynPlusCheckout, logCheynEvent } from "@/lib/cheyn";
 import { getJWTUser } from "@/lib/jwt-auth";
 import { handleAPIError } from "@/lib/api-error-tracking";
 import { withAPIObservability } from "@/lib/api-observability";
@@ -61,6 +61,18 @@ async function POSTHandler(req: NextRequest) {
     );
   } catch (error) {
     handleAPIError(error, req, "/api/cheyn/checkout", "POST", 500);
+    if (error instanceof CheynCheckoutError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          upstreamStatus: error.status,
+          upstreamPath: error.path,
+          upstreamPreview: error.responsePreview,
+        },
+        { status: 502, headers }
+      );
+    }
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to create Cheyn checkout" },
       { status: 500, headers }

@@ -7,7 +7,7 @@
     "build": "npx convex codegen && next build",
     "start": "next start",
     "lint": "eslint .",
-    "convex:dev": "convex dev",
+    "convex:dev": "convex dev --once",
     "convex:deploy": "convex deploy",
     "convex:codegen": "convex codegen",
     "deploy:convex": "convex deploy --prod",
