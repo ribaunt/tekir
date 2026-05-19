@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { useAuth } from "@/components/auth-provider";
@@ -12,7 +13,7 @@ type CheckoutStatus = {
 };
 
 function isSuccess(status?: string) {
-  return status === "payout_pending" || status === "payout_sent" || status === "completed";
+  return status === "payment.verified" || status === "payout_pending" || status === "payout_sent" || status === "completed";
 }
 
 function isFailure(status?: string) {
@@ -26,15 +27,31 @@ export function MoneroCallbackClient({
   checkoutId: string | null;
   verified: boolean;
 }) {
+  const router = useRouter();
   const { checkAuthStatus } = useAuth();
   const [checkout, setCheckout] = useState<CheckoutStatus | null>(null);
   const [error, setError] = useState<string | null>(verified ? null : "We could not verify this Cheyn callback.");
 
   useEffect(() => {
-    if (!verified || !checkoutId) return;
+    if (!verified || !checkoutId) {
+      return;
+    }
 
     let cancelled = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let pollTimeout: ReturnType<typeof setTimeout> | undefined;
+    let redirectTimeout: ReturnType<typeof setTimeout> | undefined;
+
+    const redirectToAccount = async () => {
+      if (cancelled) return;
+      await checkAuthStatus(true);
+      if (!cancelled) {
+        router.replace("/settings/account");
+      }
+    };
+
+    redirectTimeout = setTimeout(() => {
+      void redirectToAccount();
+    }, 4000);
 
     const poll = async () => {
       try {
@@ -50,12 +67,12 @@ export function MoneroCallbackClient({
         setCheckout(data);
 
         if (isSuccess(data.status)) {
-          await checkAuthStatus(true);
+          await redirectToAccount();
           return;
         }
 
         if (!isFailure(data.status)) {
-          timeout = setTimeout(poll, 5000);
+          pollTimeout = setTimeout(poll, 1000);
         }
       } catch (err) {
         if (!cancelled) {
@@ -68,9 +85,10 @@ export function MoneroCallbackClient({
 
     return () => {
       cancelled = true;
-      if (timeout) clearTimeout(timeout);
+      if (pollTimeout) clearTimeout(pollTimeout);
+      if (redirectTimeout) clearTimeout(redirectTimeout);
     };
-  }, [checkAuthStatus, checkoutId, verified]);
+  }, [checkAuthStatus, checkoutId, router, verified]);
 
   const status = checkout?.status;
   const successful = isSuccess(status);
