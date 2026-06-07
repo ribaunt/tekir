@@ -40,7 +40,7 @@ const openai = new OpenAI({
 const generationConfig = {
   temperature: 0,
   top_p: 0.95,
-  max_tokens: 300,
+  max_tokens: 140,
   // Exclude reasoning tokens from response - ensures content is in message.content
   // Without this, models with reasoning capabilities may return empty content
   // and put reasoning in a separate field
@@ -49,11 +49,56 @@ const generationConfig = {
   },
 };
 
+const OPENAI_REASONING_MAX_COMPLETION_TOKENS = 600;
+const openAIReasoningGenerationConfig = {
+  max_completion_tokens: OPENAI_REASONING_MAX_COMPLETION_TOKENS,
+  reasoning_effort: 'low' as const,
+  reasoning: {
+    exclude: true,
+  },
+};
+
+const MAX_ANSWER_CHARS = 360;
+
+function toPlainShortAnswer(value: string, maxChars = MAX_ANSWER_CHARS): string {
+  const plain = value
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s*[-+*]\s+/gm, '')
+    .replace(/^\s*\d+[.)]\s+/gm, '')
+    .replace(/[*_~>#|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (plain.length <= maxChars) {
+    return plain;
+  }
+
+  const clipped = plain.slice(0, maxChars + 1).trim();
+  const sentenceEnd = Math.max(
+    clipped.lastIndexOf('.'),
+    clipped.lastIndexOf('!'),
+    clipped.lastIndexOf('?')
+  );
+
+  if (sentenceEnd >= Math.min(120, maxChars * 0.45)) {
+    return clipped.slice(0, sentenceEnd + 1).trim();
+  }
+
+  const lastSpace = clipped.lastIndexOf(' ', maxChars - 1);
+  const cutAt = lastSpace > 80 ? lastSpace : maxChars;
+  return `${clipped.slice(0, cutAt).trim()}...`;
+}
+
 const SYSTEM_PROMPT = `You are Karakulak, a helpful AI agent working with Tekir search engine. Answer only.
 
 Rules:
 - Respond with the direct answer only. No prefaces, no apologies, no suggestions, no meta commentary, no questions back.
-- Keep it concise and factual (short paragraph or shorter).
+- Keep it concise and factual: one short paragraph, 1 to 3 sentences, maximum ${MAX_ANSWER_CHARS} characters.
+- Use raw plain text only. Never use Markdown, headings, bullets, numbered lists, tables, code blocks, quotes, bold, italic, emojis, or any decorative/text-styling syntax.
+- Finish the thought inside the character limit. Do not trail off mid-sentence.
 - If the input is unsupported, or disallowed, return an empty response.
 - Try to give as much as context on a search term as possible, even when the search term isn't a full question or about a specific topic.
 - Do not explain why you are refusing or why the input is not a question.`;
@@ -61,7 +106,7 @@ Rules:
 // Model configurations with their actual OpenRouter model IDs
 const MODEL_CONFIG = {
   gemini: {
-    id: 'google/gemini-3-flash-preview',
+    id: 'google/gemini-3.1-flash-lite',
     provider: 'google',
   },
   llama: {
@@ -69,15 +114,15 @@ const MODEL_CONFIG = {
     provider: 'meta',
   },
   mistral: {
-    id: 'mistralai/ministral-8b-2512',
+    id: 'mistralai/mistral-small-2603',
     provider: 'mistralai',
   },
   chatgpt: {
-    id: 'openai/gpt-5-mini',
+    id: 'openai/gpt-5.4-nano',
     provider: 'openai',
   },
   grok: {
-    id: 'x-ai/grok-4-fast',
+    id: 'x-ai/grok-4.3',
     provider: 'x-ai',
   },
   claude: {
@@ -97,10 +142,13 @@ async function callAI(
   message: string
 ): Promise<ChatCompletionResponse> {
   const config = MODEL_CONFIG[modelKey];
+  const outputConfig = modelKey === 'chatgpt'
+    ? openAIReasoningGenerationConfig
+    : generationConfig;
 
   const response = await openai.chat.completions.create({
     model: config.id,
-    ...generationConfig,
+    ...outputConfig,
     messages: [
       {
         role: 'system',
@@ -115,6 +163,12 @@ async function callAI(
   });
 
   return response;
+}
+
+function getConfiguredOutputTokenLimit(modelKey: ModelKey): number {
+  return modelKey === 'chatgpt'
+    ? OPENAI_REASONING_MAX_COMPLETION_TOKENS
+    : generationConfig.max_tokens;
 }
 
 // Helper to get user ID from session
@@ -255,17 +309,17 @@ async function POSTHandler(req: NextRequest, { params }: { params: Promise<{ mod
     const response = await callAI(modelKey, sanitizedMessage);
 
     const latency = Date.now() - t0;
-    const answer = response.choices[0]?.message.content ?? '';
+    const answer = toPlainShortAnswer(response.choices[0]?.message.content ?? '');
     const actualModel = response.model || MODEL_CONFIG[modelKey].id;
-    
+
     // Get actual usage data from OpenRouter response (includes cost)
     const usage = response.usage as OpenRouterUsage | undefined;
-    
+
     // Use actual token counts from API, fallback to estimates only if not available
     const queryTokens = usage?.prompt_tokens ?? estimateTokens(sanitizedMessage);
     const answerTokens = usage?.completion_tokens ?? estimateTokens(answer);
     const totalTokens = usage?.total_tokens ?? (queryTokens + answerTokens);
-    
+
     // Use actual cost from OpenRouter if available (in USD), otherwise null
     const actualCost = usage?.cost ?? null;
 
@@ -324,7 +378,7 @@ async function POSTHandler(req: NextRequest, { params }: { params: Promise<{ mod
       $ai_span_id: spanId,
       $ai_span_name: `karakulak_${modelKey}_completion`,
       $ai_temperature: generationConfig.temperature,
-      $ai_max_tokens: generationConfig.max_tokens,
+      $ai_max_tokens: getConfiguredOutputTokenLimit(modelKey),
       $ai_http_status: 200,
       $ai_base_url: 'https://openrouter.ai/api/v1',
       $ai_request_url: 'https://openrouter.ai/api/v1/chat/completions',
@@ -409,7 +463,7 @@ async function POSTHandler(req: NextRequest, { params }: { params: Promise<{ mod
       $ai_span_id: spanId,
       $ai_span_name: `karakulak_${modelKey}_completion`,
       $ai_temperature: generationConfig.temperature,
-      $ai_max_tokens: generationConfig.max_tokens,
+      $ai_max_tokens: getConfiguredOutputTokenLimit(modelKey),
       $ai_http_status: error.status || error.statusCode || 500,
       $ai_base_url: 'https://openrouter.ai/api/v1',
       $ai_request_url: 'https://openrouter.ai/api/v1/chat/completions',

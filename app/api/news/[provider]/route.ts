@@ -54,18 +54,16 @@ function sanitizeText(value: any): string {
 async function getBraveNews(q: string, country: string = 'ALL', safesearch: string = 'moderate'): Promise<NewsResult[]> {
   const results: NewsResult[] = [];
   try {
-    // Add "news" to the query to get news-related results
-    const newsQuery = `${q} news`;
-    
     const params = new URLSearchParams({
-      q: newsQuery,
+      q,
       country: country,
       safesearch: safesearch,
+      count: '20',
       spellcheck: 'false',
       text_decorations: 'false'
     });
 
-    const res = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
+    const res = await fetch(`https://api.search.brave.com/res/v1/news/search?${params}`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -79,8 +77,24 @@ async function getBraveNews(q: string, country: string = 'ALL', safesearch: stri
       throw new Error(`Network response was not ok: ${res.status}`);
     }
     const data = await res.json();
-    
-    if (data.web && data.web.results && Array.isArray(data.web.results)) {
+
+    if (data.results && Array.isArray(data.results)) {
+      data.results.forEach((item: any) => {
+        const url = item.url || '';
+        if (!url) return;
+
+        results.push({
+          title: sanitizeText(item.title || ''),
+          description: sanitizeText(item.description || ''),
+          url,
+          source: sanitizeText(item.source || item.meta_url?.hostname || ''),
+          age: sanitizeText(item.age || item.page_age || 'Recently'),
+          thumbnail: item.thumbnail?.src || item.thumbnail?.original || undefined,
+        });
+      });
+    }
+
+    if (results.length === 0 && data.web && data.web.results && Array.isArray(data.web.results)) {
       // Filter results to prefer news sources and recent content
       const newsResults = data.web.results.filter((item: any) => {
         const url = item.url || '';
@@ -113,7 +127,52 @@ async function getBraveNews(q: string, country: string = 'ALL', safesearch: stri
       });
     }
   } catch (error) {
-    console.error('Error fetching Brave news data:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error fetching Brave news data:', error);
+    }
+
+    try {
+      const fallbackParams = new URLSearchParams({
+        q: `${q} news`,
+        country,
+        safesearch,
+        spellcheck: 'false',
+        text_decorations: 'false',
+        result_filter: 'news,web',
+      });
+
+      const fallbackRes = await fetch(`https://api.search.brave.com/res/v1/web/search?${fallbackParams}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': process.env.BRAVE_SEARCH_KEY || ''
+        }
+      });
+
+      if (!fallbackRes.ok) return results;
+      const fallbackData = await fallbackRes.json();
+      const fallbackNews = Array.isArray(fallbackData.news?.results)
+        ? fallbackData.news.results
+        : (Array.isArray(fallbackData.web?.results) ? fallbackData.web.results : []);
+
+      fallbackNews.slice(0, 20).forEach((item: any) => {
+        const url = item.url || '';
+        if (!url) return;
+        results.push({
+          title: sanitizeText(item.title || ''),
+          description: sanitizeText(item.description || ''),
+          url,
+          source: sanitizeText(item.source || item.meta_url?.hostname || (url ? new URL(url).hostname : '')),
+          age: sanitizeText(item.age || item.page_age || 'Recently'),
+          thumbnail: item.thumbnail?.src || item.thumbnail?.original || undefined,
+        });
+      });
+    } catch (fallbackError) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error fetching Brave news fallback data:', fallbackError);
+      }
+    }
   }
   return results;
 }

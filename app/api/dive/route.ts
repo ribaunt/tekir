@@ -22,6 +22,47 @@ const openai = new OpenAI({
 
 const DIVE_MODEL = 'openai/gpt-5-mini';
 const DIVE_PROVIDER = 'openai';
+const MAX_DIVE_ANSWER_CHARS = 420;
+const DIVE_MAX_COMPLETION_TOKENS = 700;
+const DIVE_GENERATION_CONFIG = {
+  max_completion_tokens: DIVE_MAX_COMPLETION_TOKENS,
+  reasoning_effort: 'low' as const,
+  reasoning: {
+    exclude: true,
+  },
+};
+
+function toPlainShortAnswer(value: string, maxChars = MAX_DIVE_ANSWER_CHARS): string {
+  const plain = value
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s*[-+*]\s+/gm, '')
+    .replace(/^\s*\d+[.)]\s+/gm, '')
+    .replace(/[*_~>#|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (plain.length <= maxChars) {
+    return plain;
+  }
+
+  const clipped = plain.slice(0, maxChars + 1).trim();
+  const sentenceEnd = Math.max(
+    clipped.lastIndexOf('.'),
+    clipped.lastIndexOf('!'),
+    clipped.lastIndexOf('?')
+  );
+
+  if (sentenceEnd >= Math.min(140, maxChars * 0.45)) {
+    return clipped.slice(0, sentenceEnd + 1).trim();
+  }
+
+  const lastSpace = clipped.lastIndexOf(' ', maxChars - 1);
+  const cutAt = lastSpace > 90 ? lastSpace : maxChars;
+  return `${clipped.slice(0, cutAt).trim()}...`;
+}
 
 interface PageContent {
   url: string;
@@ -190,7 +231,7 @@ async function POSTHandler(req: NextRequest) {
       contextForLlm += `Source ${index + 1}: ${truncatedContent}\n\n`;
     });
 
-    const llmPrompt = `Query: "${query}"\n\nContent:\n${contextForLlm}\n\nProvide a concise, accurate answer based on the above sources.`;
+    const llmPrompt = `Query: "${query}"\n\nContent:\n${contextForLlm}\n\nProvide a concise, accurate answer based on the above sources. Use raw plain text only, one short paragraph, 1 to 3 sentences, maximum ${MAX_DIVE_ANSWER_CHARS} characters. Do not use Markdown, headings, bullets, numbered lists, tables, code blocks, quotes, bold, italic, emojis, or decorative/text-styling syntax. Finish the thought inside the character limit and do not trail off mid-sentence.`;
     llmPromptForAnalytics = llmPrompt;
 
     // Call LLM with timing
@@ -200,21 +241,20 @@ async function POSTHandler(req: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: 'You are an AI assistant for Tekir Dive mode. Provide concise, accurate answers based on web sources. Be direct and helpful. Do not use markdown, do not offer to answer a second question. Keep the answer short and understandable.',
+          content: `You are an AI assistant for Tekir Dive mode. Provide concise, accurate answers based on web sources. Be direct and helpful. Return raw plain text only. Never use Markdown, headings, bullets, numbered lists, tables, code blocks, quotes, bold, italic, emojis, or decorative/text-styling syntax. Keep the answer to one short paragraph, 1 to 3 sentences, maximum ${MAX_DIVE_ANSWER_CHARS} characters. Finish the thought inside the character limit and do not offer to answer a second question.`,
         },
         {
           role: 'user',
           content: llmPrompt,
         },
       ],
-      max_tokens: 400,
-      temperature: 0.3,
+      ...DIVE_GENERATION_CONFIG,
     });
 
     const aiDuration = Date.now() - aiStartTime;
     const totalDuration = Date.now() - startTime;
 
-    const answer = llmResponse.choices[0].message.content ?? '';
+    const answer = toPlainShortAnswer(llmResponse.choices[0].message.content ?? '');
     const actualModel = llmResponse.model || DIVE_MODEL;
     const usage = llmResponse.usage;
 
@@ -245,8 +285,7 @@ async function POSTHandler(req: NextRequest) {
       $ai_trace_id: traceId,
       $ai_span_id: generationSpanId,
       $ai_span_name: 'dive_generation',
-      $ai_temperature: 0.3,
-      $ai_max_tokens: 400,
+      $ai_max_tokens: DIVE_MAX_COMPLETION_TOKENS,
       $ai_http_status: 200,
       $ai_base_url: 'https://openrouter.ai/api/v1',
       $ai_request_url: 'https://openrouter.ai/api/v1/chat/completions',
@@ -296,8 +335,7 @@ async function POSTHandler(req: NextRequest) {
       $ai_trace_id: traceId,
       $ai_span_id: generationSpanId,
       $ai_span_name: 'dive_generation',
-      $ai_temperature: 0.3,
-      $ai_max_tokens: 400,
+      $ai_max_tokens: DIVE_MAX_COMPLETION_TOKENS,
       $ai_http_status: error.status || error.statusCode || 500,
       $ai_base_url: 'https://openrouter.ai/api/v1',
       $ai_request_url: 'https://openrouter.ai/api/v1/chat/completions',

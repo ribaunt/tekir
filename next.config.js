@@ -86,6 +86,8 @@ const nextConfig = {
     turbopackUseBuiltinBabel: true,
   },
 
+  allowedDevOrigins: ['127.0.0.1'],
+
   turbopack: {
     root: __dirname,
   },
@@ -151,7 +153,7 @@ const nextConfig = {
   },
 
   async headers() {
-    return [
+    const cacheHeaders = isDev ? [] : [
       {
         // Static JS/CSS assets with content hash - cache forever
         source: '/:path*.(js|css|json|woff|woff2|ttf|otf)',
@@ -171,7 +173,11 @@ const nextConfig = {
             value: 'public, max-age=31536000, immutable'
           }
         ]
-      },
+      }
+    ];
+
+    return [
+      ...cacheHeaders,
       {
         source: '/:path*',
         headers: [

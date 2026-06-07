@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, ComponentType } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Search, Image as ImageIcon, Newspaper, Video, MoreHorizontal, LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 
@@ -53,7 +53,7 @@ export function SearchTabs({ active, onChange }: SearchTabsProps) {
 
   // Desktop / large screens: show full tab list
   const fullTabs = (
-    <div className="hidden md:flex space-x-4" role="tablist" aria-label="Search result types">
+    <div className="hidden md:flex items-center gap-1" role="tablist" aria-label="Search result types">
       {TABS.map((t) => {
         const Icon = t.Icon;
         const isActive = active === t.key;
@@ -62,20 +62,20 @@ export function SearchTabs({ active, onChange }: SearchTabsProps) {
             type="button"
             key={t.key}
             onClick={() => onChange(t.key)}
-            className="pb-2 px-1 flex items-center gap-2 transition-colors relative group"
+            className="relative flex h-10 items-center gap-1.5 px-3 text-sm transition-colors group"
             role="tab"
             aria-selected={isActive}
             tabIndex={isActive ? 0 : -1}
           >
-            <div className="flex items-center gap-2">
-              <Icon className="w-4 h-4" aria-hidden="true" />
-              <span className={isActive ? "text-primary font-medium" : "text-muted-foreground group-hover:text-foreground"}>
+            <div className="flex items-center gap-1.5">
+              <Icon className={`h-3.5 w-3.5 ${isActive ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"}`} aria-hidden="true" />
+              <span className={isActive ? "text-foreground font-medium" : "text-muted-foreground group-hover:text-foreground"}>
                 {t.label}
               </span>
             </div>
             <div
-              className={`absolute bottom-0 left-1/2 transform -translate-x-1/2 h-0.5 bg-primary rounded-full transition-all duration-300 ease-out ${
-                isActive ? 'w-16 opacity-100' : 'w-0 opacity-0'
+              className={`absolute bottom-0 left-3 right-3 h-0.5 rounded-full bg-primary transition-opacity duration-200 ${
+                isActive ? 'opacity-100' : 'opacity-0'
               }`}
             />
           </button>
@@ -92,8 +92,8 @@ export function SearchTabs({ active, onChange }: SearchTabsProps) {
   const moreActive = overflowTabs.some((t) => t.key === active);
 
   const mobileTabs = (
-    <div className="w-full md:hidden flex items-center justify-between" role="tablist" aria-label="Search result types">
-      <div className="flex space-x-4 items-center">
+    <div className="w-full md:hidden flex items-center justify-between overflow-x-auto" role="tablist" aria-label="Search result types">
+      <div className="flex items-center gap-1">
         {visibleTabs.map((t) => {
           const Icon = t.Icon;
           const isActive = active === t.key;
@@ -102,20 +102,20 @@ export function SearchTabs({ active, onChange }: SearchTabsProps) {
               type="button"
               key={t.key}
               onClick={() => onChange(t.key)}
-              className="pb-2 px-1 flex items-center gap-2 transition-colors relative group"
+              className="relative flex h-10 items-center gap-1.5 px-2.5 text-sm transition-colors group"
               role="tab"
               aria-selected={isActive}
               tabIndex={isActive ? 0 : -1}
             >
-              <div className="flex items-center gap-2">
-                <Icon className="w-4 h-4" aria-hidden="true" />
-                <span className={isActive ? "text-primary font-medium" : "text-muted-foreground group-hover:text-foreground"}>
+              <div className="flex items-center gap-1.5">
+                <Icon className={`h-3.5 w-3.5 ${isActive ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"}`} aria-hidden="true" />
+                <span className={isActive ? "text-foreground font-medium" : "text-muted-foreground group-hover:text-foreground"}>
                   {t.label}
                 </span>
               </div>
               <div
-                className={`absolute bottom-0 left-1/2 transform -translate-x-1/2 h-0.5 bg-primary rounded-full transition-all duration-300 ease-out ${
-                  isActive ? 'w-16 opacity-100' : 'w-0 opacity-0'
+                className={`absolute bottom-0 left-2.5 right-2.5 h-0.5 rounded-full bg-primary transition-opacity duration-200 ${
+                  isActive ? 'opacity-100' : 'opacity-0'
                 }`}
               />
             </button>
@@ -133,7 +133,7 @@ export function SearchTabs({ active, onChange }: SearchTabsProps) {
               onClick={() => setMoreOpen((v) => !v)}
               aria-haspopup="menu"
               aria-expanded={moreOpen}
-              className={`pb-2 px-2 flex items-center justify-center w-8 h-8 rounded-full hover:bg-muted/40 ${moreActive ? 'text-primary' : 'text-muted-foreground'}`}
+              className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-muted/60 ${moreActive ? 'text-foreground' : 'text-muted-foreground'}`}
               aria-label="More search types"
             >
               <MoreHorizontal className="w-4 h-4" aria-hidden="true" />

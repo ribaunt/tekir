@@ -1,12 +1,125 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import Image from 'next/image';
-import { ExternalLink, ChevronDown } from 'lucide-react';
+import React, { useEffect, useState } from "react";
+import Image from "next/image";
+import { ChevronDown, ExternalLink } from "lucide-react";
 
 type WikiProps = {
   wikiData: any;
 };
+
+type FactLink = {
+  text: string;
+  url?: string;
+  wikidataUrl?: string;
+};
+
+function formatLabel(key: string) {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function normalizeFactPart(value: any): string | FactLink {
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (value?.url && typeof value.url === "string") {
+    return { text: value.label || value.file || value.url, url: value.url };
+  }
+  if (value?.wikidataUrl) return { text: value.label || value.id || value.wikidataUrl, wikidataUrl: value.wikidataUrl };
+  if (value?.label) return value.label;
+  if (value?.id) return value.id;
+  return JSON.stringify(value);
+}
+
+function FactValue({ value }: { value: string | FactLink }) {
+  if (typeof value === "string") {
+    if (/^https?:\/\//i.test(value)) {
+      return (
+        <a href={value} target="_blank" rel="noopener noreferrer" className="break-words text-blue-600 hover:underline dark:text-blue-400">
+          {value}
+        </a>
+      );
+    }
+
+    return <span>{value}</span>;
+  }
+
+  const href = value.wikidataUrl || value.url;
+  if (!href) return <span>{value.text}</span>;
+
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="break-words text-blue-600 hover:underline dark:text-blue-400">
+      {value.text}
+    </a>
+  );
+}
+
+function renderFact(key: string, value: any) {
+  if (value == null) return null;
+
+  const label = formatLabel(key);
+
+  if (key === "coordinates" && value.lat && value.lon) {
+    return (
+      <div key={key}>
+        <span className="font-medium">{label}:</span> {value.lat}, {value.lon}
+      </div>
+    );
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value.map(normalizeFactPart).filter(Boolean);
+    if (parts.length === 0) return null;
+
+    return (
+      <div key={key}>
+        <span className="font-medium">{label}:</span>{" "}
+        {parts.map((part, index) => (
+          <React.Fragment key={`${key}-${index}`}>
+            <FactValue value={part} />
+            {index < parts.length - 1 ? ", " : ""}
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  }
+
+  if (typeof value === "number") {
+    return (
+      <div key={key}>
+        <span className="font-medium">{label}:</span> {value.toLocaleString()}
+      </div>
+    );
+  }
+
+  if (typeof value === "object") {
+    if (value.url && typeof value.url === "string") {
+      return (
+        <div key={key}>
+          <span className="font-medium">{label}:</span> <FactValue value={{ text: value.label || value.url, url: value.url }} />
+        </div>
+      );
+    }
+
+    if (value.label || value.id) {
+      return (
+        <div key={key}>
+          <span className="font-medium">{label}:</span> {value.label || value.id}
+        </div>
+      );
+    }
+
+    return (
+      <div key={key}>
+        <span className="font-medium">{label}:</span> {JSON.stringify(value)}
+      </div>
+    );
+  }
+
+  return (
+    <div key={key}>
+      <span className="font-medium">{label}:</span> <FactValue value={String(value)} />
+    </div>
+  );
+}
 
 export default function WikiNotebook({ wikiData }: WikiProps) {
   const [expanded, setExpanded] = useState(false);
@@ -14,35 +127,36 @@ export default function WikiNotebook({ wikiData }: WikiProps) {
   const [loadingFacts, setLoadingFacts] = useState(false);
   const [factsError, setFactsError] = useState<string | null>(null);
 
-  const pageUrl = wikiData?.content_urls?.desktop?.page || wikiData?.pageUrl || '#';
+  const pageUrl = wikiData?.content_urls?.desktop?.page || wikiData?.pageUrl || "#";
   const title = wikiData?.title;
-  const lang = wikiData?.lang || wikiData?.language || 'en';
-  const paragraphs = (wikiData?.extract || '').split(/\n{2,}|\r\n{2,}/);
-  const first = paragraphs[0] || '';
-  const full = wikiData?.extract || '';
+  const lang = wikiData?.lang || wikiData?.language || "en";
+  const paragraphs = (wikiData?.extract || "").split(/\n{2,}|\r\n{2,}/);
+  const first = paragraphs[0] || "";
+  const full = wikiData?.extract || "";
 
   useEffect(() => {
     if (!title) return;
+
     let mounted = true;
     const fetchFacts = async () => {
       setLoadingFacts(true);
       setFactsError(null);
+
       try {
-        const q = new URL('/api/wikidata', location.href);
-        q.searchParams.set('title', title);
-        q.searchParams.set('lang', String(lang || 'en'));
+        const q = new URL("/api/wikidata", location.href);
+        q.searchParams.set("title", title);
+        q.searchParams.set("lang", String(lang || "en"));
         const res = await fetch(q.toString());
         if (!res.ok) throw new Error(await res.text());
-        const j = await res.json();
-        if (!mounted) return;
-        setFacts(j.facts || null);
+        const json = await res.json();
+        if (mounted) setFacts(json.facts || null);
       } catch (err: any) {
-        if (!mounted) return;
-        setFactsError(err?.message || 'failed');
+        if (mounted) setFactsError(err?.message || "failed");
       } finally {
         if (mounted) setLoadingFacts(false);
       }
     };
+
     fetchFacts();
     return () => {
       mounted = false;
@@ -51,122 +165,61 @@ export default function WikiNotebook({ wikiData }: WikiProps) {
 
   if (!wikiData) return null;
 
+  const visibleFactKeys = facts && typeof facts === "object" ? Object.keys(facts).filter((key) => facts[key] != null) : [];
+  const showFacts = loadingFacts || (!factsError && visibleFactKeys.length > 0);
+
   return (
-  <div className="p-4 lg:p-6 rounded-lg bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 shadow-md break-words whitespace-normal overflow-hidden">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1">
-          <h3 className="text-lg lg:text-xl font-semibold mb-1 leading-tight break-words">{wikiData.title}</h3>
-          {wikiData.description && (
-            <p className="text-xs lg:text-sm text-gray-500 dark:text-gray-400 mb-2 lg:mb-3">{wikiData.description}</p>
+    <section className="break-words overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-sm whitespace-normal">
+      <div className="p-4 lg:p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h3 className="mb-1 break-words text-xl font-semibold leading-tight">{wikiData.title}</h3>
+            {wikiData.description && <p className="mb-3 text-sm leading-5 text-muted-foreground">{wikiData.description}</p>}
+          </div>
+          {wikiData.thumbnail && (
+            <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-md bg-muted lg:h-24 lg:w-24">
+              <Image src={wikiData.thumbnail.source} alt={wikiData.title} width={96} height={96} unoptimized className="h-full w-full object-cover" />
+            </div>
           )}
         </div>
-        {wikiData.thumbnail && (
-          <div className="w-24 h-24 rounded overflow-hidden flex-shrink-0">
-            <Image src={wikiData.thumbnail.source} alt={wikiData.title} width={96} height={96} unoptimized className="object-cover" />
-          </div>
-        )}
-      </div>
 
-      <div className="mt-2">
-            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed mb-2 whitespace-normal break-words">{expanded ? full : first}</p>
-        {full !== first && (
-          <button
-            onClick={() => setExpanded(prev => !prev)}
-            className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-2"
-            aria-expanded={expanded}
-          >
-            {expanded ? 'Show less' : 'Read more'}
-            <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-          </button>
-        )}
-      </div>
-
-      <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400">
-        <div className="flex flex-col gap-1">
-          <div><a href={pageUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">Open on Wikipedia <ExternalLink className="w-3 h-3 inline-block ml-1" /></a></div>
-        </div>
         <div className="mt-3">
-          {/* Only render facts header when loading OR when there are visible facts to show */}
-          {loadingFacts || (facts && typeof facts === 'object' && Object.keys(facts).length > 0) ? (
-            <>
-              <h4 className="text-sm font-semibold mb-2">Facts</h4>
-              {loadingFacts && (
+          <p className="mb-2 break-words text-sm leading-6 text-foreground/85 whitespace-normal">{expanded ? full : first}</p>
+          {full !== first && (
+            <button
+              onClick={() => setExpanded((prev) => !prev)}
+              className="flex items-center gap-1.5 text-sm font-medium text-blue-600 transition-colors hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+              aria-expanded={expanded}
+            >
+              {expanded ? "Show less" : "Read more"}
+              <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
+            </button>
+          )}
+        </div>
+
+        <div className="mt-4 border-t border-border pt-3 text-xs text-muted-foreground">
+          <a href={pageUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
+            Open on Wikipedia <ExternalLink className="ml-1 inline-block h-3 w-3" />
+          </a>
+
+          {showFacts && (
+            <div className="mt-3">
+              <h4 className="mb-2 text-sm font-semibold text-foreground">Facts</h4>
+              {loadingFacts ? (
                 <div className="space-y-2 animate-pulse">
-                  <div className="h-3 bg-gray-200 dark:bg-gray-800 rounded w-3/4" />
-                  <div className="h-3 bg-gray-200 dark:bg-gray-800 rounded w-1/2" />
-                  <div className="h-3 bg-gray-200 dark:bg-gray-800 rounded w-5/6" />
+                  <div className="h-3 w-3/4 rounded bg-muted" />
+                  <div className="h-3 w-1/2 rounded bg-muted" />
+                  <div className="h-3 w-5/6 rounded bg-muted" />
+                </div>
+              ) : (
+                <div className="space-y-1 break-words text-xs leading-5 text-foreground/80 whitespace-normal">
+                  {visibleFactKeys.map((key) => renderFact(key, facts[key]))}
                 </div>
               )}
-              {!loadingFacts && factsError && (
-                // If facts failed to load we intentionally omit the facts block per UX request
-                null
-              )}
-              {!loadingFacts && !factsError && facts && (
-                <div className="text-xs text-gray-700 dark:text-gray-300 space-y-1 break-words whitespace-normal">
-                  {Object.keys(facts).map((key) => {
-                    const val = (facts as any)[key];
-                    if (val == null) return null;
-
-                    const label = key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-
-                    // coordinates
-                    if (key === 'coordinates' && val.lat && val.lon) {
-                      return <div key={key}><span className="font-medium">{label}:</span> {val.lat}, {val.lon}</div>;
-                    }
-
-                    // arrays
-                    if (Array.isArray(val)) {
-                      const parts = val.map((v: any) => {
-                        if (!v) return '';
-                        if (typeof v === 'string' || typeof v === 'number') return String(v);
-                        if (v.url && typeof v.url === 'string') return { text: v.label || v.file || v.url, url: v.url };
-                        if (v.label) return v.label;
-                        if (v.id) return v.id;
-                        return JSON.stringify(v);
-                      }).filter(Boolean);
-                      if (parts.length === 0) return null;
-                      return (
-                        <div key={key}>
-                          <span className="font-medium">{label}:</span>{' '}
-                          {parts.map((p: any, i: number) => (
-                            typeof p === 'string'
-                              ? (
-                                /^https?:\/\//i.test(p)
-                                  ? <a key={i} href={p} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline break-words max-w-full">{p}{i < parts.length - 1 ? ', ' : ''}</a>
-                                  : <span key={i}>{p}{i < parts.length - 1 ? ', ' : ''}</span>
-                              )
-                              : (
-                                p.wikidataUrl
-                                  ? <a key={i} href={p.wikidataUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline break-words max-w-full">{p.label || p.id}{i < parts.length - 1 ? ', ' : ''}</a>
-                                  : <a key={i} href={p.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline break-words max-w-full">{p.text}{i < parts.length - 1 ? ', ' : ''}</a>
-                              )
-                          ))}
-                        </div>
-                      );
-                    }
-
-                    // numbers
-                    if (typeof val === 'number') return <div key={key}><span className="font-medium">{label}:</span> {val.toLocaleString()}</div>;
-
-                    // objects with label or url
-            if (typeof val === 'object') {
-              if (val.url && typeof val.url === 'string') return <div key={key}><span className="font-medium">{label}:</span> <a href={val.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline break-words max-w-full">{val.label || val.url}</a></div>;
-                      if (val.label || val.id) return <div key={key}><span className="font-medium">{label}:</span> {val.label || val.id}</div>;
-                      return <div key={key}><span className="font-medium">{label}:</span> {JSON.stringify(val)}</div>;
-                    }
-
-                    // fallback: render http/https as links
-                    if (typeof val === 'string' && /^https?:\/\//i.test(val)) {
-                      return <div key={key}><span className="font-medium">{label}:</span> <a href={val} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline break-words max-w-full">{val}</a></div>;
-                    }
-                    return <div key={key}><span className="font-medium">{label}:</span> {String(val)}</div>;
-                  })}
-                </div>
-              )}
-            </>
-          ) : null}
+            </div>
+          )}
         </div>
       </div>
-    </div>
+    </section>
   );
 }

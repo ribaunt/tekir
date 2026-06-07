@@ -37,6 +37,19 @@ interface Results {
   url: string;
   source: string;
   favicon?: string;
+  age?: string;
+  thumbnail?: string;
+  profile?: {
+    name?: string;
+    url?: string;
+    long_name?: string;
+    img?: string;
+  };
+  sitelinks?: Array<{
+    title: string;
+    url: string;
+    description?: string;
+  }>;
 }
 
 // Helper: remove HTML tags and decode common HTML entities and numeric entities
@@ -185,6 +198,7 @@ async function getGoogle(q: string, country?: string, safesearch?: string, lang?
         url: link,
         source: 'Google',
         favicon,
+        thumbnail: item?.pagemap?.cse_thumbnail?.[0]?.src || item?.pagemap?.cse_image?.[0]?.src || undefined,
       });
     });
   } catch (error) {
@@ -196,7 +210,23 @@ async function getGoogle(q: string, country?: string, safesearch?: string, lang?
   return { results, totalResults };
 }
 
-async function getBrave(q: string, country: string = 'ALL', safesearch: string = 'moderate') {
+function normalizeBraveSitelinks(item: any): Results['sitelinks'] {
+  const raw = item?.deep_results?.buttons || item?.sitelinks || item?.cluster || [];
+  if (!Array.isArray(raw)) return undefined;
+
+  const sitelinks = raw
+    .map((link: any) => ({
+      title: sanitizeText(link?.title || link?.name || ''),
+      url: String(link?.url || ''),
+      description: sanitizeText(link?.description || link?.snippet || ''),
+    }))
+    .filter((link) => link.title && link.url)
+    .slice(0, 4);
+
+  return sitelinks.length > 0 ? sitelinks : undefined;
+}
+
+async function getBrave(q: string, country: string = 'ALL', safesearch: string = 'moderate', freshness?: string | null) {
   const results: Results[] = [];
   let videos: any[] = [];
   let news: any[] = [];
@@ -208,6 +238,9 @@ async function getBrave(q: string, country: string = 'ALL', safesearch: string =
       spellcheck: 'false',
       text_decorations: 'false'
     });
+    if (freshness && ['pd', 'pw', 'pm', 'py'].includes(freshness)) {
+      params.set('freshness', freshness);
+    }
 
     const res = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
       method: 'GET',
@@ -225,7 +258,11 @@ async function getBrave(q: string, country: string = 'ALL', safesearch: string =
         description: sanitizeText(item.description || ''),
         displayUrl: sanitizeText((item.url || '').replace(/^https?:\/\//, '')),
         url: item.url || '',
-        source: 'Brave'
+        source: 'Brave',
+        age: sanitizeText(item.age || item.page_age || ''),
+        thumbnail: item.thumbnail?.src || item.thumbnail?.original || undefined,
+        profile: item.profile,
+        sitelinks: normalizeBraveSitelinks(item),
         // Don't extract favicon from Brave - let DuckDuckGo handle all favicons
       };
       results.push(result);
@@ -400,6 +437,7 @@ async function GETHandler(req: NextRequest, { params }: { params: Promise<{ prov
   const country = req.nextUrl.searchParams.get('country') || 'ALL';
   const safesearch = req.nextUrl.searchParams.get('safesearch') || 'moderate';
   const lang = req.nextUrl.searchParams.get('lang') || req.nextUrl.searchParams.get('language') || undefined;
+  const freshness = req.nextUrl.searchParams.get('freshness') || undefined;
 
   if (process.env.NODE_ENV === 'development') {
     trackServerLog('search_request_received', {
@@ -450,7 +488,7 @@ async function GETHandler(req: NextRequest, { params }: { params: Promise<{ prov
       totalResultsCount = results.length;
       break;
     case 'brave': {
-      const braveRes = await getBrave(query, country, safesearch);
+      const braveRes = await getBrave(query, country, safesearch, freshness);
       results = braveRes.results;
       videos = braveRes.videos || [];
       news = braveRes.news || [];

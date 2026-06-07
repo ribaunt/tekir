@@ -161,22 +161,17 @@ export default function FloatingFeedback({ query, results, wikiData, suggestions
           )}
         </div>
 
-        {/* Layered circular outlines: outer black -> white -> main black button */}
-        <div className="rounded-full p-0.5 bg-black shadow-[0_6px_18px_rgba(0,0,0,0.25)]">
-          <div className="rounded-full p-[2px] bg-white">
-            <button
-              type="button"
-              onClick={() => setOpen(v => !v)}
-              aria-label="Send feedback"
-              aria-expanded={open}
-              aria-haspopup="dialog"
-              className="relative flex items-center gap-2 px-4 py-2 rounded-full bg-black text-white shadow-xl"
-            >
-              <MessageCircleMore className="w-4 h-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Feedback</span>
-            </button>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => setOpen(v => !v)}
+          aria-label="Send feedback"
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          className="relative flex items-center gap-2 rounded-full border border-border bg-card/95 px-4 py-2 text-sm font-medium text-card-foreground shadow-lg backdrop-blur transition-colors hover:bg-muted"
+        >
+          <MessageCircleMore className="w-4 h-4" aria-hidden="true" />
+          <span className="hidden sm:inline">Feedback</span>
+        </button>
       </div>
     </div>
   );

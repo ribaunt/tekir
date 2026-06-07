@@ -5,7 +5,7 @@ import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
-import { Search, Cat, ChevronDown, ExternalLink, Lock, MessageCircleMore, Sparkles, Settings, Newspaper, Video, AlertTriangle, X } from "lucide-react";
+import { Search, Cat, ChevronDown, Lock, MessageCircleMore, Sparkles, Settings, Newspaper, Video, AlertTriangle, X, ShieldCheck, Copy, Check, Share2 } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useSettings } from "@/lib/settings";
 import { handleBangRedirect } from "@/utils/bangs";
@@ -57,6 +57,19 @@ interface SearchResult {
   url: string;
   source: string;
   favicon?: string;
+  age?: string;
+  thumbnail?: string;
+  profile?: {
+    name?: string;
+    url?: string;
+    long_name?: string;
+    img?: string;
+  };
+  sitelinks?: Array<{
+    title: string;
+    url: string;
+    description?: string;
+  }>;
 }
 
 interface Suggestion {
@@ -124,6 +137,113 @@ interface AIAnalytics {
 interface AIResponseData {
   answer: string;
   _analytics?: AIAnalytics;
+}
+
+const SERP_COUNTRIES = [
+  { code: "ALL", name: "All regions" },
+  { code: "TR", name: "Turkey" },
+  { code: "US", name: "United States" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "DE", name: "Germany" },
+  { code: "FR", name: "France" },
+  { code: "NL", name: "Netherlands" },
+  { code: "CA", name: "Canada" },
+  { code: "AU", name: "Australia" },
+];
+
+const SAFE_SEARCH_OPTIONS = [
+  { value: "off", label: "Safe: Off" },
+  { value: "moderate", label: "Safe: Moderate" },
+  { value: "strict", label: "Safe: Strict" },
+];
+
+const FRESHNESS_OPTIONS = [
+  { value: "", label: "Any time" },
+  { value: "pd", label: "Past day" },
+  { value: "pw", label: "Past week" },
+  { value: "pm", label: "Past month" },
+  { value: "py", label: "Past year" },
+];
+
+const DIVE_LOADING_MESSAGES = [
+  "Fetching sources...",
+  "Analyzing data...",
+  "Creating an explanation...",
+];
+
+type SerpChooserOption = {
+  value: string;
+  label: string;
+  disabled?: boolean;
+};
+
+function SerpChooser({
+  id,
+  label,
+  valueLabel,
+  options,
+  value,
+  open,
+  onOpenChange,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  valueLabel: string;
+  options: SerpChooserOption[];
+  value: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        id={`${id}-button`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={`${id}-menu`}
+        onClick={() => onOpenChange(!open)}
+        className="inline-flex h-9 items-center gap-2 rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted/55 focus:outline-none focus:ring-2 focus:ring-primary/35"
+      >
+        <span>{valueLabel}</span>
+        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div
+          id={`${id}-menu`}
+          role="menu"
+          aria-labelledby={`${id}-button`}
+          className="absolute left-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-lg border border-border bg-popover p-1.5 shadow-xl"
+        >
+          <div className="px-3 pb-1.5 pt-2 text-xs font-semibold uppercase tracking-normal text-muted-foreground">{label}</div>
+          {options.map((option) => {
+            const selected = option.value === value;
+            return (
+              <button
+                key={option.value || 'any'}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                disabled={option.disabled}
+                onClick={() => {
+                  if (option.disabled) return;
+                  onChange(option.value);
+                  onOpenChange(false);
+                }}
+                className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition-colors ${selected ? 'bg-muted text-foreground' : 'text-foreground hover:bg-muted/70'
+                  } ${option.disabled ? 'cursor-not-allowed opacity-45' : ''}`}
+              >
+                <span>{option.label}</span>
+                {selected && <Check className="h-4 w-4 text-primary" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Rename the original SearchPage component
@@ -250,11 +370,17 @@ function SearchPageContent() {
   const [karakulakCollapsed, setKarakulakCollapsed] = useState(true);
   const [isScrolled, setIsScrolled] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
+  const [freshnessFilter, setFreshnessFilter] = useState("");
+  const [relatedSearches, setRelatedSearches] = useState<string[]>([]);
+  const [answerCopied, setAnswerCopied] = useState(false);
+  const [openSerpChooser, setOpenSerpChooser] = useState<string | null>(null);
+  const [diveLoadingMessageIndex, setDiveLoadingMessageIndex] = useState(0);
 
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const aiRequestInProgressRef = useRef<string | null>(null);
   const searchIdRef = useRef(0);
   const lastResultsQueryRef = useRef<string | null>(null);
+  const lastResultsSignatureRef = useRef<string | null>(null);
   const webSearchAbortRef = useRef<AbortController | null>(null);
   const imagesAbortRef = useRef<AbortController | null>(null);
   const newsAbortRef = useRef<AbortController | null>(null);
@@ -265,7 +391,7 @@ function SearchPageContent() {
   const suggestionsAbortRef = useRef<AbortController | null>(null);
   const wikipediaAbortRef = useRef<AbortController | null>(null);
   const aiAbortControllerRef = useRef<AbortController | null>(null);
-  
+
   // Store settings values in refs to prevent effect re-runs when settings update
   const searchCountryRef = useRef(settings.searchCountry || "ALL");
   const safesearchRef = useRef(settings.safesearch || "moderate");
@@ -297,11 +423,21 @@ function SearchPageContent() {
       setDiveResponse(null);
       setDiveSources([]);
       lastResultsQueryRef.current = null;
+      lastResultsSignatureRef.current = null;
       return;
     }
 
-    // Only clear data and refetch if query actually changed
-    if (lastResultsQueryRef.current === currentQuery) {
+    const resultSignature = [
+      currentQuery,
+      engineRef.current,
+      searchCountryRef.current,
+      safesearchRef.current,
+      languageRef.current,
+      freshnessFilter,
+    ].join("|");
+
+    // Only clear data and refetch if the query or active result filters changed
+    if (lastResultsSignatureRef.current === resultSignature) {
       return;
     }
 
@@ -319,49 +455,53 @@ function SearchPageContent() {
     setDiveError(false);
     aiRequestInProgressRef.current = null;
     lastResultsQueryRef.current = currentQuery;
+    lastResultsSignatureRef.current = resultSignature;
 
     const searchId = ++searchIdRef.current;
 
     // Always fetch regular search results for display, regardless of Dive mode
     const engineToUse = getEngineForMode(engineRef.current, 'web');
 
-      const fetchRegularSearch = async () => {
-        // Wait for session initialization to avoid 401 on first load
-        if (typeof window !== 'undefined' && !(window as any).__sessionRegistered) {
-          await new Promise(resolve => {
-            const handler = () => {
-              window.removeEventListener('session-registered', handler);
-              resolve(true);
-            };
-            window.addEventListener('session-registered', handler);
-            // Timeout fallback
-            setTimeout(() => {
-              window.removeEventListener('session-registered', handler);
-              resolve(true);
-            }, 2000);
+    const fetchRegularSearch = async () => {
+      // Wait for session initialization to avoid 401 on first load
+      if (typeof window !== 'undefined' && !(window as any).__sessionRegistered) {
+        await new Promise(resolve => {
+          const handler = () => {
+            window.removeEventListener('session-registered', handler);
+            resolve(true);
+          };
+          window.addEventListener('session-registered', handler);
+          // Timeout fallback
+          setTimeout(() => {
+            window.removeEventListener('session-registered', handler);
+            resolve(true);
+          }, 2000);
+        });
+      }
+
+      // Abort any previous in-flight request
+      if (webSearchAbortRef.current) {
+        try { webSearchAbortRef.current.abort(); } catch { }
+      }
+      webSearchAbortRef.current = new AbortController();
+      const webSignal = webSearchAbortRef.current.signal;
+      const doFetch = async (engine: string) => {
+        try {
+          // Get user preferences from refs (updated independently of effect)
+          const storedCountry = searchCountryRef.current;
+          const storedSafesearch = safesearchRef.current;
+          const storedLang = languageRef.current || (typeof navigator !== 'undefined' ? navigator.language?.slice(0, 2) : '');
+
+          // Build query parameters
+          const searchParams = new URLSearchParams({
+            q: currentQuery,
+            country: storedCountry,
+            safesearch: storedSafesearch,
+            ...(storedLang ? { lang: storedLang } : {})
           });
-        }
-
-        // Abort any previous in-flight request
-        if (webSearchAbortRef.current) {
-          try { webSearchAbortRef.current.abort(); } catch { }
-        }
-        webSearchAbortRef.current = new AbortController();
-        const webSignal = webSearchAbortRef.current.signal;
-        const doFetch = async (engine: string) => {
-          try {
-            // Get user preferences from refs (updated independently of effect)
-            const storedCountry = searchCountryRef.current;
-            const storedSafesearch = safesearchRef.current;
-            const storedLang = languageRef.current || (typeof navigator !== 'undefined' ? navigator.language?.slice(0, 2) : '');
-
-            // Build query parameters
-            const searchParams = new URLSearchParams({
-              q: currentQuery,
-              country: storedCountry,
-              safesearch: storedSafesearch,
-              ...(storedLang ? { lang: storedLang } : {})
-            });
+          if (freshnessFilter) {
+            searchParams.set('freshness', freshnessFilter);
+          }
 
           const apiUrl = `${apiEndpoints.search.pars(engine)}?${searchParams}`;
 
@@ -375,6 +515,7 @@ function SearchPageContent() {
               searchParams: {
                 country: storedCountry,
                 safesearch: storedSafesearch,
+                ...(freshnessFilter ? { freshness: freshnessFilter } : {}),
                 ...(storedLang ? { lang: storedLang } : {})
               }
             }
@@ -447,7 +588,7 @@ function SearchPageContent() {
         webSearchAbortRef.current = null;
       }
     };
-  }, [searchParams, router, isAuthenticated, searchType]);
+  }, [searchParams, router, isAuthenticated, searchType, freshnessFilter, searchEngine, settings.searchCountry, settings.safesearch, settings.language, getEngineForMode]);
 
   useEffect(() => {
     if (!query || searchType !== 'images') return;
@@ -1281,6 +1422,43 @@ function SearchPageContent() {
   }, [showSuggestions]);
 
   useEffect(() => {
+    if (!openSerpChooser) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      if (!target?.closest('[data-serp-chooser]')) {
+        setOpenSerpChooser(null);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenSerpChooser(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [openSerpChooser]);
+
+  useEffect(() => {
+    if (!aiDiveEnabled || !diveLoading) {
+      setDiveLoadingMessageIndex(0);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setDiveLoadingMessageIndex((index) => (index + 1) % DIVE_LOADING_MESSAGES.length);
+    }, 1600);
+
+    return () => window.clearInterval(intervalId);
+  }, [aiDiveEnabled, diveLoading]);
+
+  useEffect(() => {
     if (!query || query.trim().length < 2) {
       setWikiData(null);
       return;
@@ -1440,6 +1618,68 @@ function SearchPageContent() {
     }
   }, [settings.searchType]);
 
+  useEffect(() => {
+    if (!query || query.trim().length < 2 || searchType !== 'web') {
+      setRelatedSearches([]);
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const fallbackRelated = (value: string) => {
+      const trimmed = value.trim();
+      return [
+        `${trimmed} news`,
+        `${trimmed} meaning`,
+        `${trimmed} examples`,
+        `${trimmed} vs`,
+        `best ${trimmed}`,
+        `${trimmed} reddit`,
+      ];
+    };
+
+    const loadRelated = async () => {
+      try {
+        const params = new URLSearchParams({
+          q: query,
+          country: searchCountryRef.current,
+          safesearch: safesearchRef.current,
+        });
+        const lang = languageRef.current || (typeof navigator !== 'undefined' ? navigator.language?.slice(0, 2) : '');
+        if (lang) params.set('lang', lang);
+
+        const response = await fetchWithSessionRefreshAndCache(`/api/autocomplete/${autocompleteSource}?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Related search fetch failed with status ${response.status}`);
+
+        const data = await response.json();
+        const items = Array.isArray(data) && Array.isArray(data[1])
+          ? data[1].map((item: unknown) => String(item)).filter(Boolean)
+          : [];
+        const combined = [...items, ...fallbackRelated(query)]
+          .filter((item) => item.toLowerCase() !== query.toLowerCase());
+        const unique = Array.from(new Set(combined.map((item) => item.trim()).filter(Boolean))).slice(0, 8);
+
+        if (!cancelled) {
+          setRelatedSearches(unique);
+        }
+      } catch {
+        if (!cancelled) {
+          setRelatedSearches(fallbackRelated(query).slice(0, 6));
+        }
+      }
+    };
+
+    const timeoutId = setTimeout(loadRelated, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [query, searchType, autocompleteSource, settings.searchCountry, settings.safesearch, settings.language]);
+
   const handleSearchTypeChange = (type: 'web' | 'images' | 'news' | 'videos') => {
     // Track tab change in analytics
     trackSearchTabChanged(searchType, type);
@@ -1489,6 +1729,55 @@ function SearchPageContent() {
     // Note: the existing useEffect hooks (watching searchType/query) will
     // perform the actual fetch. We only prepare UI state here so skeletons
     // render immediately when the user switches tabs.
+  };
+
+  const handleSerpCountryChange = (country: string) => {
+    void updateSetting("searchCountry", country);
+    lastResultsSignatureRef.current = null;
+  };
+
+  const handleSerpSafeSearchChange = (value: string) => {
+    void updateSetting("safesearch", value);
+    lastResultsSignatureRef.current = null;
+  };
+
+  const handleSerpProviderChange = (value: string) => {
+    const nextEngine = getEngineForMode(value, searchType);
+    setSearchEngine(nextEngine);
+    void updateSetting("searchEngine", nextEngine);
+    lastResultsSignatureRef.current = null;
+  };
+
+  const handleFreshnessChange = (value: string) => {
+    setFreshnessFilter(value);
+    lastResultsSignatureRef.current = null;
+  };
+
+  const copyAnswer = async () => {
+    const text = diveResponse || aiResponse;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setAnswerCopied(true);
+      setTimeout(() => setAnswerCopied(false), 1600);
+    } catch {
+      setAnswerCopied(false);
+    }
+  };
+
+  const shareAnswer = async () => {
+    const text = diveResponse || aiResponse;
+    if (!text) return;
+    const shareUrl = typeof window !== 'undefined' ? window.location.href : undefined;
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({ title: `Tekir: ${query}`, text, url: shareUrl });
+      } catch {
+        // User-cancelled shares do not need UI noise.
+      }
+      return;
+    }
+    await copyAnswer();
   };
 
   const [isNewsInlineOpen, setIsNewsInlineOpen] = useState(true);
@@ -1549,10 +1838,10 @@ function SearchPageContent() {
 
       if (results.length > 0) {
         return (
-          <div className="space-y-8">
+          <div className="space-y-6">
             {results.map((result, index) => (
               <div key={`result-${index}`}>
-                <WebResultItem result={result} />
+                <WebResultItem result={result} priority={index < 3} />
 
                 {/* Insert News cluster after 4th result (index 3) */}
                 {index === 3 && settings.enchantedResults !== false && newsResults && newsResults.length > 0 && (
@@ -1745,6 +2034,28 @@ function SearchPageContent() {
                   </div>
                 )}
               </div>
+            )}
+
+            {relatedSearches.length > 0 && (
+              <section className="mt-10 border-t border-border pt-5">
+                <h3 className="mb-3 text-sm font-semibold text-foreground">{t('search.relatedSearches')}</h3>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {relatedSearches.map((related) => (
+                    <button
+                      key={related}
+                      type="button"
+                      onClick={() => {
+                        setSearchInput(related);
+                        router.push(`/search?q=${encodeURIComponent(related)}`);
+                      }}
+                      className="flex min-h-10 items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                    >
+                      <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="line-clamp-1">{related}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
             )}
 
           </div>
@@ -1958,7 +2269,7 @@ function SearchPageContent() {
   return (
     <>
       <header
-        className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/70"
+        className="fixed left-0 right-0 top-0 z-50 border-b border-border bg-background/85 backdrop-blur-xl supports-[backdrop-filter]:bg-background/80"
         style={{
           opacity: scrollProgress,
           transform: `translateY(${(-8) * (1 - scrollProgress)}px)`,
@@ -1967,8 +2278,8 @@ function SearchPageContent() {
         }}
         aria-hidden={scrollProgress < 0.05}
       >
-        <div className="container mx-auto flex items-center gap-4 h-14 px-4 sm:px-6 lg:px-8">
-          <Link href="/" className="flex items-center gap-2 shrink-0">
+        <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
+          <Link href="/" className="flex w-11 shrink-0 items-center justify-center">
             {logoLoaded ? (
               <Image key={logoMetadata.path} src={logoMetadata.path} alt={t('search.logoAlt')} width={36} height={12} style={{ transform: `scale(1)`, transition: "transform 150ms ease-out" }} suppressHydrationWarning />
             ) : (
@@ -1977,7 +2288,7 @@ function SearchPageContent() {
             <span className="sr-only">Tekir</span>
           </Link>
 
-          <form onSubmit={handleSearch} className="flex-1 max-w-2xl relative">
+          <form onSubmit={handleSearch} className="relative flex-1 max-w-[42rem]">
             <div className="relative">
               <SearchInput
                 type="text"
@@ -1986,7 +2297,7 @@ function SearchPageContent() {
                 onKeyDown={handleKeyDown}
                 onFocus={() => setShowSuggestions(true)}
                 placeholder={t('search.placeholder')}
-                className="w-full pr-12 h-10"
+                className="h-10 w-full border-input bg-muted/35 pr-12 text-[0.95rem] shadow-sm transition-colors focus-visible:bg-background"
               />
               <div className="absolute right-2 top-1/2 -translate-y-1/2">
                 <Button type="submit" variant="ghost" size="icon" shape="pill" title="Search">
@@ -2021,19 +2332,19 @@ function SearchPageContent() {
             )}
           </form>
 
-          <div className="flex items-center gap-3 ml-auto">
+          <div className="ml-auto flex items-center gap-3">
             <UserProfile avatarSize={36} />
           </div>
         </div>
       </header>
 
       <div className="min-h-screen flex flex-col">
-        <main className="p-4 md:p-8 flex-grow">
+        <main className="flex-grow px-4 pb-8 pt-4 sm:px-6 lg:px-8">
           {/* Flying Cats Easter Egg overlay */}
           <FlyingCats show={!!catEasterEgg} />
-          <div className="max-w-5xl w-full md:w-4/5 xl:w-2/3 ml-0 md:ml-8 md:mr-8 mb-8 relative">
-            <form onSubmit={handleSearch} className="flex items-center w-full space-x-2 md:space-x-4">
-              <Link href="/">
+          <div className="mx-auto mb-4 w-full max-w-7xl relative">
+            <form onSubmit={handleSearch} className="flex h-14 w-full max-w-[54rem] items-center gap-3">
+              <Link href="/" className="flex w-11 shrink-0 items-center justify-center">
                 {logoLoaded ? (
                   <Image key={logoMetadata.path} src={logoMetadata.path} alt="Tekir Logo" width={40} height={40} priority suppressHydrationWarning />
                 ) : (
@@ -2053,12 +2364,12 @@ function SearchPageContent() {
                     onFocus={() => setShowSuggestions(true)}
                     placeholder={t('search.placeholder')}
                     maxLength={800}
-                    className="flex-1 px-4 py-2 pr-16 rounded-full shadow-lg text-lg"
+                    className="h-11 flex-1 rounded-full border-input bg-muted/35 px-4 py-2 pr-14 text-[0.98rem] shadow-sm transition-colors focus-visible:bg-background"
                     style={{ minWidth: 0 }}
                   />
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">
                     <Button type="submit" variant="ghost" size="icon" shape="pill" title="Search">
-                      <Search className="w-5 h-5" />
+                      <Search className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
@@ -2066,7 +2377,7 @@ function SearchPageContent() {
                 {showSuggestions && suggestions.length > 0 && (
                   <div
                     ref={suggestionsRef}
-                    className={`absolute w-full mt-2 ${hasBang ? 'mt-6' : 'mt-2'} py-2 bg-background rounded-lg border border-border shadow-lg z-50`}
+                    className={`absolute z-50 w-full ${hasBang ? 'mt-6' : 'mt-2'} overflow-hidden rounded-xl border border-border bg-popover py-1.5 shadow-xl`}
                   >
                     {suggestions.map((suggestion, index) => (
                       <button
@@ -2078,7 +2389,7 @@ function SearchPageContent() {
                           router.push(`/search?q=${encodeURIComponent(suggestion.query)}`);
                           setShowSuggestions(false);
                         }}
-                        className={`w-full px-4 py-2 text-left hover:bg-muted transition-colors ${index === selectedIndex ? 'bg-muted' : ''
+                        className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted ${index === selectedIndex ? 'bg-muted' : ''
                           }`}
                       >
                         <div className="flex items-center gap-2">
@@ -2090,7 +2401,7 @@ function SearchPageContent() {
                   </div>
                 )}
               </div>
-              <div className="hidden md:flex items-center gap-4 ml-auto">
+              <div className="ml-auto hidden items-center gap-4 md:flex">
                 <UserProfile mobileNavItems={mobileNavItems} />
               </div>
               <div className="md:hidden">
@@ -2100,15 +2411,105 @@ function SearchPageContent() {
 
           </div>
 
-          <div className="max-w-6xl w-full md:ml-8 md:mr-8 relative">
+          <div className="mx-auto w-full max-w-7xl relative">
             {query && (
-              <div className="mb-6 border-b border-border">
+              <div className="mb-4 max-w-[54rem] border-b border-border">
                 <SearchTabs active={searchType} onChange={handleSearchTypeChange} />
               </div>
             )}
 
-            <div className="flex flex-col md:flex-row md:gap-6 lg:gap-8">
-              <div className="flex-1 md:w-2/3 lg:w-3/4 xl:w-2/3 2xl:w-3/4">
+            {query && (
+              <div className="relative mb-5 flex max-w-[54rem] flex-wrap items-center gap-2 text-sm" data-serp-chooser>
+                <button
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-expanded={openSerpChooser === 'protected'}
+                  onClick={() => setOpenSerpChooser(openSerpChooser === 'protected' ? null : 'protected')}
+                  className="mr-1 inline-flex h-9 items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 dark:bg-emerald-950/25 dark:text-emerald-200 dark:hover:bg-emerald-900/35"
+                  title="Tekir does not sell your search data."
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Protected
+                </button>
+                {openSerpChooser === 'protected' && (
+                  <div
+                    role="dialog"
+                    aria-label="Protected search privacy"
+                    className="absolute left-0 top-[calc(100%+0.5rem)] z-50 w-80 rounded-lg border border-emerald-500/25 bg-popover p-4 text-sm shadow-xl"
+                  >
+                    <div className="mb-3 flex items-center gap-2 font-semibold text-foreground">
+                      <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                      Protected search
+                    </div>
+                    <div className="space-y-2 text-muted-foreground">
+                      {[
+                        "Searches are never saved.",
+                        "We do not collect personal search data.",
+                        "No search profiling or selling data.",
+                      ].map((item) => (
+                        <div key={item} className="flex items-start gap-2">
+                          <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                          <span>{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <SerpChooser
+                  id="serp-region"
+                  label="Region"
+                  value={settings.searchCountry || "ALL"}
+                  valueLabel={SERP_COUNTRIES.find((country) => country.code === (settings.searchCountry || "ALL"))?.name || "All regions"}
+                  options={SERP_COUNTRIES.map((country) => ({ value: country.code, label: country.name }))}
+                  open={openSerpChooser === 'region'}
+                  onOpenChange={(open) => setOpenSerpChooser(open ? 'region' : null)}
+                  onChange={handleSerpCountryChange}
+                />
+
+                <SerpChooser
+                  id="serp-safe"
+                  label="Safe Search"
+                  value={settings.safesearch || "moderate"}
+                  valueLabel={SAFE_SEARCH_OPTIONS.find((option) => option.value === (settings.safesearch || "moderate"))?.label || "Safe: Moderate"}
+                  options={SAFE_SEARCH_OPTIONS}
+                  open={openSerpChooser === 'safe'}
+                  onOpenChange={(open) => setOpenSerpChooser(open ? 'safe' : null)}
+                  onChange={handleSerpSafeSearchChange}
+                />
+
+                {searchType === 'web' && (
+                  <SerpChooser
+                    id="serp-time"
+                    label="Time"
+                    value={freshnessFilter}
+                    valueLabel={FRESHNESS_OPTIONS.find((option) => option.value === freshnessFilter)?.label || "Any time"}
+                    options={FRESHNESS_OPTIONS}
+                    open={openSerpChooser === 'time'}
+                    onOpenChange={(open) => setOpenSerpChooser(open ? 'time' : null)}
+                    onChange={handleFreshnessChange}
+                  />
+                )}
+
+                <SerpChooser
+                  id="serp-provider"
+                  label="Provider"
+                  value={getEngineForMode(searchEngine, searchType)}
+                  valueLabel={getEngineForMode(searchEngine, searchType) === 'you' ? 'You.com' : getEngineForMode(searchEngine, searchType) === 'google' ? 'Google' : 'Brave'}
+                  options={[
+                    { value: 'brave', label: 'Brave' },
+                    { value: 'you', label: 'You.com', disabled: searchType !== 'web' },
+                    { value: 'google', label: isAuthenticated ? 'Google' : 'Google', disabled: !isAuthenticated },
+                  ]}
+                  open={openSerpChooser === 'provider'}
+                  onOpenChange={(open) => setOpenSerpChooser(open ? 'provider' : null)}
+                  onChange={handleSerpProviderChange}
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,44rem)_minmax(19rem,22rem)] xl:gap-12">
+              <div className="min-w-0">
                 {/* Standalone AI/Dive error banner */}
                 {(searchType === 'web' && aiEnabled && (aiError || diveError)) ? (
                   <div
@@ -2130,13 +2531,13 @@ function SearchPageContent() {
                   </div>
                 ) : null}
                 {showKarakulak ? (
-                  <div className="mb-8 p-6 rounded-lg bg-blue-50 dark:bg-blue-900/20">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center">
-                        <Cat className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                        <span className="ml-2 font-medium text-blue-800 dark:text-blue-200 inline-flex items-center">
+                  <section className={`mb-6 overflow-hidden rounded-lg border border-blue-500/20 bg-blue-50/55 shadow-sm dark:bg-blue-950/20 ${aiDiveEnabled ? 'p-4' : 'p-3.5 sm:p-4'}`}>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center">
+                        <Cat className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                        <span className="ml-2 inline-flex min-w-0 items-center text-sm font-semibold text-blue-900 dark:text-blue-100">
                           {t('search.karakulakName')}
-                          <span className="ml-2 inline-flex items-center px-2 py-0.5 text-xs font-semibold bg-blue-600 text-white rounded-full">
+                          <span className="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-normal bg-blue-600 text-white">
                             {t('search.betaLabel')}
                           </span>
                         </span>
@@ -2145,13 +2546,13 @@ function SearchPageContent() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={handleToggleAiDive}
-                          className={`relative p-2 rounded-full text-sm font-medium transition-all duration-300 flex items-center justify-center overflow-hidden ${aiDiveEnabled
-                              ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50 ring-2 ring-blue-400 ring-offset-2 ring-offset-background'
-                              : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 hover:shadow-md'
+                          className={`relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border text-sm font-medium transition-colors duration-200 ${aiDiveEnabled
+                            ? 'border-blue-600 bg-blue-600 text-white'
+                            : 'border-blue-500/20 bg-background/70 text-blue-700 hover:bg-blue-100 dark:text-blue-200 dark:hover:bg-blue-950/60'
                             }`}
                           title={aiDiveEnabled ? "Disable Dive mode" : "Enable Dive mode"}
                         >
-                          <Sparkles className={`w-5 h-5 transition-all duration-300 relative z-10 ${aiDiveEnabled ? 'drop-shadow-lg' : 'hover:scale-110'}`} />
+                          <Sparkles className="relative z-10 h-4 w-4" />
                           {aiDiveEnabled && (
                             <div className="absolute inset-0 rounded-full bg-gradient-to-r from-blue-400/20 via-blue-300/30 to-blue-400/20 animate-pulse"></div>
                           )}
@@ -2161,7 +2562,7 @@ function SearchPageContent() {
                           onClick={() => setKarakulakCollapsed(prev => !prev)}
                           aria-expanded={!karakulakCollapsed}
                           title={karakulakCollapsed ? 'Expand Karakulak' : 'Collapse Karakulak'}
-                          className="px-2 py-1 rounded-md text-sm text-muted-foreground hover:bg-muted transition-colors flex items-center gap-2"
+                          className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground"
                         >
                           <ChevronDown className={`w-4 h-4 transition-transform ${karakulakCollapsed ? 'rotate-180' : ''}`} />
                           <span className="sr-only">{karakulakCollapsed ? 'Expand' : 'Collapse'}</span>
@@ -2173,49 +2574,69 @@ function SearchPageContent() {
                       <div className="animate-pulse space-y-2">
                         <div className="flex items-center gap-2 text-xs text-blue-600/70 dark:text-blue-300/70">
                           <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></div>
-                          <span>{aiDiveEnabled ? t('search.fetchingWebSources') : t('search.processingRequest')}</span>
+                          <span>{aiDiveEnabled ? DIVE_LOADING_MESSAGES[diveLoadingMessageIndex] : t('search.processingRequest')}</span>
                         </div>
                         <div className="h-4 bg-blue-200 dark:bg-blue-700 rounded w-3/4 mb-2"></div>
                         <div className="h-4 bg-blue-200 dark:bg-blue-700 rounded w-1/2 mb-3"></div>
                       </div>
                     ) : (
                       <>
-                        <p className={`text-left text-blue-800 dark:text-blue-100 mb-3 ${karakulakCollapsed ? 'line-clamp-2' : ''}`}>
+                        <p className={`text-left text-blue-950 dark:text-blue-100 ${
+                          aiDiveEnabled
+                            ? `mb-2 text-[0.95rem] leading-6 ${karakulakCollapsed ? 'line-clamp-2' : ''}`
+                            : `mb-2 text-[0.98rem] leading-7 ${karakulakCollapsed ? 'line-clamp-2' : 'line-clamp-4'}`
+                        }`}>
                           {diveResponse || aiResponse}
                         </p>
+
+                        <div className={`${aiDiveEnabled ? 'mb-3 flex flex-wrap items-center justify-between gap-2' : 'mb-1 flex items-center justify-end gap-1'}`}>
+                          {diveSources && diveSources.length > 0 ? (
+                            <div className="flex min-w-0 flex-wrap gap-1.5">
+                              {diveSources.slice(0, karakulakCollapsed ? 3 : 6).map((source, index) => (
+                                <a
+                                  key={`assist-source-${index}`}
+                                  href={source.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex max-w-[12rem] items-center gap-1 rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-800 transition-colors hover:bg-blue-200 dark:bg-blue-800/50 dark:text-blue-100 dark:hover:bg-blue-800/70"
+                                  title={source.description || source.title}
+                                >
+                                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-semibold text-white">{index + 1}</span>
+                                  <span className="truncate">{source.title}</span>
+                                </a>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          <div className="ml-auto flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={copyAnswer}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-blue-800 transition-colors hover:bg-blue-100 dark:text-blue-100 dark:hover:bg-blue-900/50"
+                              title="Copy answer"
+                            >
+                              {answerCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={shareAnswer}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-blue-800 transition-colors hover:bg-blue-100 dark:text-blue-100 dark:hover:bg-blue-900/50"
+                              title="Share answer"
+                            >
+                              <Share2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
 
                         <div
                           className="overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-out"
                           style={{ maxHeight: karakulakCollapsed ? 0 : 1000, opacity: karakulakCollapsed ? 0 : 1, transform: karakulakCollapsed ? 'translateY(-6px)' : 'translateY(0px)' }}
                           aria-hidden={karakulakCollapsed}
                         >
-                          {diveSources && diveSources.length > 0 && (
-                            <div className="mb-4">
-                              <div className="flex flex-wrap gap-2">
-                                {diveSources.map((source, index) => (
-                                  <a
-                                    key={index}
-                                    href={source.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center px-3 py-1.5 rounded-full bg-blue-100 dark:bg-blue-800/50 text-blue-800 dark:text-blue-200 text-sm hover:bg-blue-200 dark:hover:bg-blue-800/70 transition-colors"
-                                    title={source.description}
-                                  >
-                                    <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center mr-2">
-                                      {index + 1}
-                                    </span>
-                                    <span className="truncate max-w-[150px]">{source.title}</span>
-                                    <ExternalLink className="w-3 h-3 ml-1 flex-shrink-0" />
-                                  </a>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
                           {(diveResponse || aiResponse) ? (
-                            <p className="text-sm text-blue-600/70 dark:text-blue-300/70 mb-4">
+                            <p className="mb-1 text-xs text-blue-700/70 dark:text-blue-300/70">
                               {aiDiveEnabled
-                                ? "Generated from web sources. May contain inaccuracies."
+                                ? "Search Assist uses the visible web sources above. Verify important details."
                                 : "Auto-generated based on AI knowledge. May contain inaccuracies."
                               }
                             </p>
@@ -2224,36 +2645,33 @@ function SearchPageContent() {
                         </div>
                       </>
                     )}
-                  </div>
+                  </section>
                 ) : null}
 
                 {searchType === 'web' && (
-                  <div className="md:hidden">
+                  <div className="lg:hidden">
                     {wikiLoading ? (
-                      <div className="mb-8 p-4 rounded-lg bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 shadow-md animate-pulse">
+                      <div className="mb-6 rounded-lg border border-border bg-card p-4 shadow-sm animate-pulse">
                         <div className="flex items-center mb-3">
                           <div className="h-4 bg-gray-200 dark:bg-gray-600 rounded w-1/3"></div>
                         </div>
                         <div className="h-8 bg-gray-200 dark:bg-gray-600 rounded w-1/2"></div>
                       </div>
                     ) : wikiData ? (
-                      <div className="mb-8 rounded-lg bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
+                      <div className="mb-6 overflow-hidden rounded-lg border border-border bg-card shadow-sm">
                         <button
                           onClick={() => setWikiExpanded(!wikiExpanded)}
-                          className="w-full flex items-center justify-between p-4 text-left"
+                          className="flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted/45"
                         >
                           <div className="flex items-center">
-                            <span className="font-medium">From Wikipedia ({wikiData.language?.toUpperCase() || 'EN'}): {wikiData.title}</span>
+                            <span className="text-sm font-medium">From Wikipedia ({wikiData.language?.toUpperCase() || 'EN'}): {wikiData.title}</span>
                           </div>
                           <ChevronDown className={`w-5 h-5 transition-transform ${wikiExpanded ? 'rotate-180' : ''}`} />
                         </button>
 
                         {wikiExpanded && (
-                          <div className="p-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                            {/* Mobile expanded WikiNotebook */}
-                            <div>
-                              <WikiNotebook wikiData={wikiData} />
-                            </div>
+                          <div className="border-t border-border">
+                            <WikiNotebook wikiData={wikiData} />
                           </div>
                         )}
                       </div>
@@ -2265,9 +2683,9 @@ function SearchPageContent() {
               </div>
 
               {searchType === 'web' && (
-                <div className="hidden md:block md:w-1/3 lg:w-1/4 xl:w-1/3 2xl:w-1/4">
+                <aside className="hidden lg:block">
                   {wikiLoading ? (
-                    <div className="p-4 lg:p-6 rounded-lg bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 shadow-md animate-pulse">
+                    <div className="sticky top-20 rounded-lg border border-border bg-card p-5 shadow-sm animate-pulse">
                       <div className="h-5 bg-gray-200 dark:bg-gray-600 rounded w-3/4 mb-4"></div>
                       <div className="w-full h-40 bg-gray-200 dark:bg-gray-600 rounded mb-4"></div>
                       <div className="h-3 bg-gray-200 dark:bg-gray-600 rounded w-full mb-2"></div>
@@ -2275,11 +2693,11 @@ function SearchPageContent() {
                       <div className="h-3 bg-gray-200 dark:bg-gray-600 rounded w-4/6"></div>
                     </div>
                   ) : wikiData ? (
-                    <div>
+                    <div className="sticky top-20">
                       <WikiNotebook wikiData={wikiData} />
                     </div>
                   ) : null}
-                </div>
+                </aside>
               )}
             </div>
           </div>
