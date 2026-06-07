@@ -92,8 +92,8 @@ export function SearchTabs({ active, onChange }: SearchTabsProps) {
   const moreActive = overflowTabs.some((t) => t.key === active);
 
   const mobileTabs = (
-    <div className="w-full md:hidden flex items-center justify-between overflow-x-auto" role="tablist" aria-label="Search result types">
-      <div className="flex items-center gap-1">
+    <div className="w-full md:hidden flex items-center justify-between gap-1 overflow-visible" role="tablist" aria-label="Search result types">
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {visibleTabs.map((t) => {
           const Icon = t.Icon;
           const isActive = active === t.key;
@@ -144,7 +144,7 @@ export function SearchTabs({ active, onChange }: SearchTabsProps) {
                 ref={popoverRef}
                 role="menu"
                 aria-label="Additional search types"
-                className="absolute right-0 top-full mt-2 w-40 bg-card border border-border rounded-lg shadow-lg z-50"
+                className="absolute right-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-lg border border-border bg-popover shadow-xl"
               >
                 <div className="py-1">
                   {overflowTabs.map((t) => {

@@ -258,10 +258,10 @@
         "description1": "Tekir, pulsuz və açıq mənbə proqramıdır. Burada mənbə kodunu görmək ola bilərsiniz.",
         "sourceCodeLink": "burada",
         "sourceCodeUrl": "https://github.com/computebaker/tekir",
-        "description2": "Tamamilə computebaker tərəfindən tikilmiş, yerləşdirilmiş və dəstəklənmiş, ribaunt tərəfindən təhlükəsizləşdirilmiş",
-        "computebakerLink": "computebaker",
-        "computebakerUrl": "https://computebaker.com",
-        "ribauntLink": "ribaunt",
+        "description2": "Ribaunt tərəfindən hazırlanıb",
+        "computebakerLink": "Ribaunt",
+        "computebakerUrl": "https://ribaunt.com",
+        "ribauntLink": "Ribaunt",
         "ribauntUrl": "https://ribaunt.com"
       }
     },

@@ -42,7 +42,6 @@ const extraImageHosts = (process.env.NEXT_PUBLIC_IMAGE_HOSTS || '')
   .filter(Boolean);
 
 const nextConfig = {
-
   images: {
     remotePatterns: [
       {

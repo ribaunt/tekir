@@ -75,12 +75,12 @@ export default function Footer({ variant = "full", className = "" }: FooterProps
               <p className="text-sm text-muted-foreground">
                 Tekir, built by{" "}
                 <a
-                  href="https://computebaker.com"
+                  href="https://ribaunt.com"
                   className="text-primary hover:underline transition-colors"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  computebaker
+                  Ribaunt
                 </a>
                 .
               </p>
@@ -208,12 +208,12 @@ export default function Footer({ variant = "full", className = "" }: FooterProps
               </li>
               <li>
                 <a 
-                  href="https://computebaker.com" 
+                  href="https://ribaunt.com" 
                   className="text-neutral-400 hover:text-white transition-colors focus:outline-none focus:underline"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  computebaker
+                  Ribaunt
                 </a>
               </li>
             </ul>
@@ -254,12 +254,12 @@ export default function Footer({ variant = "full", className = "" }: FooterProps
             <span>
               &copy; {new Date().getFullYear()}{" "}
               <a 
-                href="https://computebaker.com"
+                href="https://ribaunt.com"
                 className="hover:text-neutral-300 transition-colors focus:outline-none focus:underline"
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                computebaker
+                Ribaunt
               </a>
               . All rights reserved.
             </span>

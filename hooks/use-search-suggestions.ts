@@ -10,11 +10,11 @@ export interface Suggestion {
 async function fetchWithSessionRefresh(url: RequestInfo | URL, options?: RequestInit): Promise<Response> {
     const originalResponse = await fetch(url, options);
 
-    if (originalResponse.status === 401 || originalResponse.status === 403 && originalResponse.headers.get("Content-Type")?.includes("application/json")) {
+    if ((originalResponse.status === 401 || originalResponse.status === 403) && originalResponse.headers.get("Content-Type")?.includes("application/json")) {
         const responseCloneForErrorCheck = originalResponse.clone();
         try {
             const errorData = await responseCloneForErrorCheck.json();
-            if (errorData && errorData.error === "Invalid or expired session token.") {
+            if (errorData && (errorData.error === "Invalid or expired session token." || errorData.error === "Session token required")) {
                 trackClientLog('session_token_invalid_refresh_attempt');
                 const registerResponse = await fetch("/api/session/register", { method: "POST" });
                 if (registerResponse.ok) {

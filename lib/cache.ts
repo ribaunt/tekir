@@ -448,11 +448,11 @@ export async function fetchWithSessionRefreshAndCache<T = any>(
   // Original fetchWithSessionRefresh logic
   const originalResponse = await fetch(url, options);
 
-  if (originalResponse.status === 401 || originalResponse.status === 403 && originalResponse.headers.get("Content-Type")?.includes("application/json")) {
+  if ((originalResponse.status === 401 || originalResponse.status === 403) && originalResponse.headers.get("Content-Type")?.includes("application/json")) {
     const responseCloneForErrorCheck = originalResponse.clone();
     try {
       const errorData = await responseCloneForErrorCheck.json();
-      if (errorData && errorData.error === "Invalid or expired session token.") {
+      if (errorData && (errorData.error === "Invalid or expired session token." || errorData.error === "Session token required")) {
         if (process.env.NODE_ENV === 'development') {
           trackClientLog?.('session_refresh_attempt');
         }

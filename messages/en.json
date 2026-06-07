@@ -258,10 +258,10 @@
         "description1": "Tekir is free and open source software. You can view the source code",
         "sourceCodeLink": "here",
         "sourceCodeUrl": "https://github.com/computebaker/tekir",
-        "description2": "Fully built, hosted and supported by computebaker, secured by ribaunt",
-        "computebakerLink": "computebaker",
-        "computebakerUrl": "https://computebaker.com",
-        "ribauntLink": "ribaunt",
+        "description2": "Built by Ribaunt",
+        "computebakerLink": "Ribaunt",
+        "computebakerUrl": "https://ribaunt.com",
+        "ribauntLink": "Ribaunt",
         "ribauntUrl": "https://ribaunt.com"
       }
     },

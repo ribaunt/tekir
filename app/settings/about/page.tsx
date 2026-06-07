@@ -104,12 +104,12 @@ export default function AboutPage() {
                 <p className="text-sm text-muted-foreground">
                   Built by{" "}
                   <Link
-                    href={tAboutPage("acknowledgements.computebakerUrl")}
+                    href={tAboutPage("acknowledgements.ribauntUrl")}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary hover:underline font-medium"
                   >
-                    {tAboutPage("acknowledgements.computebakerLink")}
+                    Ribaunt
                   </Link>
                 </p>
                 <p className="text-sm text-muted-foreground">

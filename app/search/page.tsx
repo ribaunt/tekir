@@ -89,6 +89,19 @@ interface WikipediaData {
   language?: string;
 }
 
+function isExpectedAbort(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return true;
+  }
+
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return error.name === 'AbortError' || message.includes('aborted') || message.includes('abort');
+  }
+
+  return false;
+}
+
 interface ImageSearchResult {
   title: string;
   url: string;
@@ -197,7 +210,7 @@ function SerpChooser({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="relative">
+    <div className="relative shrink-0">
       <button
         type="button"
         id={`${id}-button`}
@@ -205,17 +218,17 @@ function SerpChooser({
         aria-expanded={open}
         aria-controls={`${id}-menu`}
         onClick={() => onOpenChange(!open)}
-        className="inline-flex h-9 items-center gap-2 rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted/55 focus:outline-none focus:ring-2 focus:ring-primary/35"
+        className="inline-flex h-8 max-w-[10.5rem] shrink-0 items-center gap-1.5 rounded-full border border-border bg-background px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted/55 focus:outline-none focus:ring-2 focus:ring-primary/35 sm:h-9 sm:max-w-none sm:gap-2 sm:px-4 sm:text-sm"
       >
-        <span>{valueLabel}</span>
-        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+        <span className="truncate">{valueLabel}</span>
+        <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform sm:h-4 sm:w-4 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
         <div
           id={`${id}-menu`}
           role="menu"
           aria-labelledby={`${id}-button`}
-          className="absolute left-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-lg border border-border bg-popover p-1.5 shadow-xl"
+          className="fixed left-3 right-3 top-36 z-[60] max-h-[min(24rem,calc(100dvh-10rem))] overflow-y-auto rounded-lg border border-border bg-popover p-1.5 shadow-xl sm:absolute sm:left-0 sm:right-auto sm:top-full sm:mt-2 sm:w-64 sm:max-h-none"
         >
           <div className="px-3 pb-1.5 pt-2 text-xs font-semibold uppercase tracking-normal text-muted-foreground">{label}</div>
           {options.map((option) => {
@@ -555,6 +568,10 @@ function SearchPageContent() {
           }
           return true;
         } catch (error) {
+          if (isExpectedAbort(error)) {
+            return false;
+          }
+
           if (process.env.NODE_ENV === 'development') {
             console.error(`Search failed for engine "${engine}":`, error);
           }
@@ -643,6 +660,10 @@ function SearchPageContent() {
               const retryData = await retryRes.json();
               if (retryData.results) setImageResults(retryData.results);
             } catch (err) {
+              if (isExpectedAbort(err)) {
+                return;
+              }
+
               if (process.env.NODE_ENV === 'development') {
                 console.error('Image retry failed:', err);
               }
@@ -663,6 +684,10 @@ function SearchPageContent() {
         }
       })
       .catch((error) => {
+        if (isExpectedAbort(error)) {
+          return;
+        }
+
         if (process.env.NODE_ENV === 'development') {
           console.error("Image search failed:", error);
         }
@@ -732,6 +757,10 @@ function SearchPageContent() {
               const retryData = await retryRes.json();
               if (retryData.results) setVideoResults(retryData.results);
             } catch (err) {
+              if (isExpectedAbort(err)) {
+                return;
+              }
+
               if (process.env.NODE_ENV === 'development') {
                 console.error('Video retry failed:', err);
               }
@@ -751,6 +780,10 @@ function SearchPageContent() {
         }
       })
       .catch((error) => {
+        if (isExpectedAbort(error)) {
+          return;
+        }
+
         if (process.env.NODE_ENV === 'development') {
           console.error("Video search failed:", error);
         }
@@ -835,6 +868,10 @@ function SearchPageContent() {
               const retryData = await retryRes.json();
               if (retryData.results) setNewsResults(retryData.results);
             } catch (err) {
+              if (isExpectedAbort(err)) {
+                return;
+              }
+
               if (process.env.NODE_ENV === 'development') {
                 console.error('News retry failed:', err);
               }
@@ -854,6 +891,10 @@ function SearchPageContent() {
         }
       })
       .catch((error) => {
+        if (isExpectedAbort(error)) {
+          return;
+        }
+
         if (process.env.NODE_ENV === 'development') {
           console.error("News search failed:", error);
         }
@@ -982,6 +1023,10 @@ function SearchPageContent() {
         aiRequestInProgressRef.current = null;
         aiAbortControllerRef.current = null;
       } catch (error) {
+        if (isExpectedAbort(error)) {
+          return;
+        }
+
         if (process.env.NODE_ENV === 'development') {
           console.error(`AI response failed for model ${model}:`, error);
         }
@@ -1121,6 +1166,10 @@ function SearchPageContent() {
         aiRequestInProgressRef.current = null;
         aiAbortControllerRef.current = null;
       } catch (error) {
+        if (isExpectedAbort(error)) {
+          return;
+        }
+
         if (process.env.NODE_ENV === 'development') {
           console.error('Dive request failed:', error);
         }
@@ -1298,6 +1347,10 @@ function SearchPageContent() {
         try {
           processedSuggestions = await fetchSuggestionsForLang(lang || undefined);
         } catch (primaryError) {
+          if (isExpectedAbort(primaryError)) {
+            throw primaryError;
+          }
+
           if (process.env.NODE_ENV === 'development') {
             console.error('Failed to fetch suggestions for current language:', primaryError);
           }
@@ -1310,6 +1363,10 @@ function SearchPageContent() {
               processedSuggestions = fallbackSuggestions;
             }
           } catch (fallbackError) {
+            if (isExpectedAbort(fallbackError)) {
+              throw fallbackError;
+            }
+
             if (process.env.NODE_ENV === 'development') {
               console.error('Fallback autocomplete fetch failed:', fallbackError);
             }
@@ -1325,6 +1382,10 @@ function SearchPageContent() {
           delete retryMap[cacheKey];
         }
       } catch (error) {
+        if (isExpectedAbort(error)) {
+          return;
+        }
+
         if (process.env.NODE_ENV === 'development') {
           console.error('Failed to fetch suggestions:', error);
         }
@@ -1539,6 +1600,10 @@ function SearchPageContent() {
           await fallbackToWikipediaSearch(language);
         }
       } catch (error) {
+        if (isExpectedAbort(error)) {
+          return;
+        }
+
         if (process.env.NODE_ENV === 'development') {
           console.error("Failed to fetch Wikipedia data:", error);
         }
@@ -1586,6 +1651,10 @@ function SearchPageContent() {
           setWikiData(null);
         }
       } catch (error) {
+        if (isExpectedAbort(error)) {
+          return;
+        }
+
         if (process.env.NODE_ENV === 'development') {
           console.error("Fallback Wikipedia search failed:", error);
         }
@@ -2419,13 +2488,13 @@ function SearchPageContent() {
             )}
 
             {query && (
-              <div className="relative mb-5 flex max-w-[54rem] flex-wrap items-center gap-2 text-sm" data-serp-chooser>
+              <div className="-mx-4 mb-4 flex max-w-[calc(100vw-1rem)] flex-nowrap items-center gap-1.5 overflow-x-auto px-4 pb-1 text-xs [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:mb-5 sm:max-w-[54rem] sm:flex-wrap sm:gap-2 sm:overflow-visible sm:px-0 sm:pb-0 sm:text-sm" data-serp-chooser>
                 <button
                   type="button"
                   aria-haspopup="dialog"
                   aria-expanded={openSerpChooser === 'protected'}
                   onClick={() => setOpenSerpChooser(openSerpChooser === 'protected' ? null : 'protected')}
-                  className="mr-1 inline-flex h-9 items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-50 px-4 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 dark:bg-emerald-950/25 dark:text-emerald-200 dark:hover:bg-emerald-900/35"
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100 dark:bg-emerald-950/25 dark:text-emerald-200 dark:hover:bg-emerald-900/35 sm:mr-1 sm:h-9 sm:gap-2 sm:px-4 sm:text-sm"
                   title="Tekir does not sell your search data."
                 >
                   <ShieldCheck className="h-3.5 w-3.5" />
@@ -2435,7 +2504,7 @@ function SearchPageContent() {
                   <div
                     role="dialog"
                     aria-label="Protected search privacy"
-                    className="absolute left-0 top-[calc(100%+0.5rem)] z-50 w-80 rounded-lg border border-emerald-500/25 bg-popover p-4 text-sm shadow-xl"
+                    className="fixed left-3 right-3 top-36 z-[60] rounded-lg border border-emerald-500/25 bg-popover p-4 text-sm shadow-xl sm:absolute sm:left-0 sm:right-auto sm:top-[calc(100%+0.5rem)] sm:w-80"
                   >
                     <div className="mb-3 flex items-center gap-2 font-semibold text-foreground">
                       <ShieldCheck className="h-4 w-4 text-emerald-500" />
