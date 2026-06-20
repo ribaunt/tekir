@@ -10,6 +10,7 @@ import {
 import { getPostHogServer } from '@/lib/posthog-server';
 import { withAPIObservability } from '@/lib/api-observability';
 import { toCaptchaMonitoringProperties, trackCaptchaMonitoringEvent } from '@/lib/captcha-monitoring';
+import { ribauntReplayStore } from '@/lib/ribaunt-replay-store';
 
 function captureCaptchaEvent(
   event: string,
@@ -35,8 +36,16 @@ async function POSTHandler(request: NextRequest) {
     const sessionId = body.sessionId ?? request.nextUrl.searchParams.get('sessionId') ?? undefined;
     const { tokens, solutions } = body;
 
-    // Verify the CAPTCHA solution
-    const isValid = verifySolution(tokens, solutions);
+    const isValid = await verifySolution(tokens, solutions, {
+      replayPrevention: 'remote',
+      replayStore: ribauntReplayStore,
+      onWarning: (warning) => {
+        captureCaptchaEvent('captcha_solution_warning', sessionId ?? 'captcha_api', {
+          reason: warning.reason,
+          message: warning.message,
+        });
+      },
+    });
 
     if (!isValid) {
       captureCaptchaEvent('captcha_solution_invalid', sessionId ?? 'captcha_api', {
