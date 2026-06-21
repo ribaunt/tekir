@@ -451,6 +451,8 @@ export default function CaptchaPage() {
               id="captcha-widget"
               challengeEndpoint="/api/captcha/challenge"
               verifyEndpoint={`/api/captcha/verify${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`}
+              autoVerify={true}
+              solveTimeout={60000}
               showWarning={false}
               onVerify={handleVerify}
               onError={handleError}
