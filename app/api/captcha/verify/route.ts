@@ -36,7 +36,7 @@ async function POSTHandler(request: NextRequest) {
     const sessionId = body.sessionId ?? request.nextUrl.searchParams.get('sessionId') ?? undefined;
     const { tokens, solutions } = body;
 
-    const isValid = await verifySolution(tokens, solutions, {
+    const result = await verifySolution(tokens, solutions, {
       replayPrevention: 'remote',
       replayStore: ribauntReplayStore,
       onWarning: (warning) => {
@@ -47,12 +47,14 @@ async function POSTHandler(request: NextRequest) {
       },
     });
 
-    if (!isValid) {
+    if (!result.valid) {
       captureCaptchaEvent('captcha_solution_invalid', sessionId ?? 'captcha_api', {
         has_session_id: Boolean(sessionId),
+        reason: result.reason,
+        message: result.message,
       });
       return NextResponse.json(
-        { error: 'Invalid solution' },
+        { error: result.message || 'Invalid solution' },
         { status: 400 }
       );
     }

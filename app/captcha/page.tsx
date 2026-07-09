@@ -3,20 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import posthog from 'posthog-js';
-import RibauntWidget from 'ribaunt/widget-react';
-
-interface RibauntErrorDetail {
-  error?: string;
-  message?: string;
-}
-
-interface RibauntStateChangeDetail {
-  state?: string;
-}
+import RibauntWidget, { type RibauntWidgetHandle } from 'ribaunt/widget-react';
 
 export default function CaptchaPage() {
   const hasTrackedWidgetLoadedRef = useRef(false);
   const hasRedirectedRef = useRef(false);
+  const widgetRef = useRef<RibauntWidgetHandle>(null);
   const [heading, setHeading] = useState('Let\'s verify you before proceeding.');
   const [returnUrl, setReturnUrl] = useState('/');
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -252,8 +244,8 @@ export default function CaptchaPage() {
   }, [widgetStatus]);
 
   const handleVerify = useCallback(
-    (detail: { solutions?: unknown[] }) => {
-      console.log('Verify event received:', detail);
+    (detail: { solutions: unknown[]; phase: 'done'; progress: 100 }) => {
+      console.log(`[captcha] verify | solutions=${detail.solutions.length} | phase=${detail.phase} | progress=${detail.progress}%`);
       markWidgetLoaded();
       setWidgetStatus('done');
       completeVerification();
@@ -262,57 +254,63 @@ export default function CaptchaPage() {
   );
 
   const handleError = useCallback(
-    (detail: RibauntErrorDetail) => {
-      console.error('Widget error:', detail);
+    (detail: { error: string; code: string; timeout: boolean; phase: 'error' }) => {
+      console.error(`[captcha] error | code=${detail.code} | timeout=${detail.timeout} | message=${detail.error}`);
       markWidgetLoaded();
       setWidgetStatus('error');
       posthog.capture('captcha_error', {
         source: 'widget',
         return_url: returnUrl,
-        message: detail?.error ?? detail?.message ?? 'widget_error',
+        message: detail.error,
+        code: detail.code,
+        timeout: detail.timeout,
       });
     },
     [markWidgetLoaded, returnUrl]
   );
 
   const handleStateChange = useCallback(
-    (detail: RibauntStateChangeDetail) => {
+    (detail: { state: string; phase: string; progress: number }) => {
       markWidgetLoaded();
-      const nextState = detail?.state ?? 'unknown';
-      console.log('Widget state changed to:', nextState);
+      const nextState = detail.state;
+      console.log(`[captcha] state | state=${nextState} | phase=${detail.phase} | progress=${detail.progress}%`);
 
-      if (detail?.state === 'initial') {
+      if (detail.state === 'initial') {
         setWidgetStatus('ready');
-      } else if (detail?.state === 'verifying') {
+      } else if (detail.state === 'fetching' || detail.state === 'solving' || detail.state === 'verifying') {
         setWidgetStatus('verifying');
-      } else if (detail?.state === 'done') {
+      } else if (detail.state === 'done') {
         setWidgetStatus('done');
-      } else if (detail?.state === 'error') {
+      } else if (detail.state === 'error') {
         setWidgetStatus('error');
       }
 
       posthog.capture('captcha_state_change', {
         state: nextState,
+        progress: detail.progress,
         return_url: returnUrl,
       });
 
-      if (detail?.state === 'done' || detail?.state === 'verified') {
+      if (detail.state === 'done') {
         completeVerification();
-      } else if (detail?.state === 'initial') {
+      } else if (detail.state === 'initial') {
         setHeading('Verifying you are a human before proceeding...');
+      } else if (detail.state === 'solving' && detail.progress > 0) {
+        setHeading(`Solving challenge... ${detail.progress}%`);
       }
     },
     [completeVerification, markWidgetLoaded, returnUrl]
   );
 
   const handleReady = useCallback(
-    (detail: RibauntStateChangeDetail) => {
+    (detail: { state: string }) => {
+      console.log(`[captcha] ready | state=${detail.state}`);
       markWidgetLoaded();
-      const nextState = detail?.state ?? 'initial';
+      const nextState = detail.state;
 
-      if (nextState === 'verifying') {
+      if (nextState === 'fetching' || nextState === 'solving' || nextState === 'verifying') {
         setWidgetStatus('verifying');
-      } else if (nextState === 'done' || nextState === 'verified') {
+      } else if (nextState === 'done') {
         setWidgetStatus('done');
       } else if (nextState === 'error') {
         setWidgetStatus('error');
@@ -321,6 +319,13 @@ export default function CaptchaPage() {
       }
     },
     [markWidgetLoaded]
+  );
+
+  const handleEvent = useCallback(
+    (type: 'verify' | 'error' | 'state-change' | 'ready', detail: unknown) => {
+      console.log(`[captcha] event | type=${type}`, detail);
+    },
+    []
   );
 
   // Get current date
@@ -448,16 +453,18 @@ export default function CaptchaPage() {
           )}
           {resourceProofReady ? (
             <RibauntWidget
-              id="captcha-widget"
+              ref={widgetRef}
               challengeEndpoint="/api/captcha/challenge"
               verifyEndpoint={`/api/captcha/verify${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`}
               autoVerify={true}
-              solveTimeout={60000}
+              solveTimeout={120000}
               showWarning={false}
+              fallback={<div className="loading">Loading verification widget...</div>}
               onVerify={handleVerify}
               onError={handleError}
               onStateChange={handleStateChange}
               onReady={handleReady}
+              onEvent={handleEvent}
             />
           ) : (
             <div className="loading">Preparing browser verification...</div>
