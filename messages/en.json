@@ -741,7 +741,13 @@
     "info": {
       "includedFeatures": "Included features:",
       "hasAccess": "You have access to all premium features",
-      "manageInfo": "You can update payment method, view invoices, or cancel your subscription in the customer portal."
+      "manageInfo": "You can update payment method, view invoices, or cancel your subscription in the customer portal.",
+      "everythingIsOpen": "Tekir is now completely open. All Plus features — including 600 daily requests — are available to everyone."
     }
+  },
+  "sunset": {
+    "title": "🌅 Sunsetting Tekir",
+    "description": "We are sunsetting Tekir services by October 1st 2026. You won't be able to search here, but the code will stay open sourced.",
+    "action": "Read the Turkish announcement →"
   }
 }

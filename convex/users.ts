@@ -77,15 +77,11 @@ export const countUsers = query({
   },
 });
 
-// Internal: list users with 'paid' role (for subscription validation cron)
+// Everything is open — no users need special 'paid' role tracking.
 export const listPaidUsers = query({
   args: {},
-  handler: async (ctx) => {
-    // Get all users and filter for those with 'paid' role
-    const users = await ctx.db.query("users").collect();
-    return users.filter(user => 
-      user.roles && user.roles.some((role: string) => role.toLowerCase() === 'paid')
-    );
+  handler: async () => {
+    return [];
   },
 });
 
@@ -157,30 +153,15 @@ export const updateUser = mutation({
   },
 });
 
+// Everything is open — no mutations needed.
 export const grantCheynPlusAccess = mutation({
   args: {
     id: v.id("users"),
     plusAccessExpiresAt: v.number(),
     cronSecret: v.string(),
   },
-  handler: async (ctx, args) => {
-    requireCronSecret(args.cronSecret);
-
-    const user = await ctx.db.get(args.id);
-    if (!user) {
-      throw new Error("User not found");
-    }
-
-    const currentRoles = user.roles ?? [];
-    const hasPaid = currentRoles.some((role: string) => role.toLowerCase() === "paid");
-    const roles = hasPaid ? currentRoles : [...currentRoles, "paid"];
-    const existingExpiry = user.cheynPlusExpiresAt ?? 0;
-
-    return await ctx.db.patch(args.id, {
-      roles,
-      cheynPlusExpiresAt: Math.max(existingExpiry, args.plusAccessExpiresAt),
-      updatedAt: Date.now(),
-    });
+  handler: async (_ctx, args) => {
+    return args.id;
   },
 });
 

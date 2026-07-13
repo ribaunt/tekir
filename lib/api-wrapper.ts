@@ -77,7 +77,7 @@ async function getUserFromSession(): Promise<{ id?: string; subscription?: strin
       id: user._id,
       username: user.username,
       email: user.email,
-      subscription: (Array.isArray(user.roles) && user.roles.includes('paid')) ? 'plus' : 'free',
+      subscription: 'plus' as const,
       createdAt: user.createdAt,
     };
   } catch (error) {

@@ -10,6 +10,7 @@ import { usePathname } from 'next/navigation';
 import { prefetchBangs } from '@/utils/bangs';
 import { initGlobalErrorHandlers } from '@/lib/client-error-tracking';
 import { Toaster } from "@/components/toaster";
+import SunsetBanner from "@/components/sunset-banner";
 import { trackClientLog } from "@/lib/posthog-analytics";
 import { initClientConsoleForwarding } from "@/lib/console-forwarder-client";
 import { trackRouteChange } from "@/instrumentation-client";
@@ -130,6 +131,7 @@ export default function ClientLayout({
         >
           <I18nProvider>
             {children}
+            <SunsetBanner />
           </I18nProvider>
         </ThemeProvider>
       </AuthProvider>

@@ -741,7 +741,13 @@
     "info": {
       "includedFeatures": "Funzionalità incluse:",
       "hasAccess": "Hai accesso a tutte le funzionalità premium",
-      "manageInfo": "Puoi aggiornare il metodo di pagamento, visualizzare le fatture o annullare l'abbonamento nel portale clienti."
+      "manageInfo": "Puoi aggiornare il metodo di pagamento, visualizzare le fatture o annullare l'abbonamento nel portale clienti.",
+      "everythingIsOpen": "Tekir è ora completamente aperto. Tutte le funzionalità Plus — inclusi 600 richieste giornaliere — sono disponibili per tutti."
     }
+  },
+  "sunset": {
+    "title": "🌅 Tekir sta chiudendo",
+    "description": "Stiamo chiudendo i servizi Tekir entro il 1 ottobre 2026. Non potrai più cercare qui, ma il codice rimarrà open source.",
+    "action": "Leggi l'annuncio turco →"
   }
 }

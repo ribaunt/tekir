@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRateLimitStatus } from '@/lib/convex-session';
-import { getUserRateLimit, RATE_LIMITS } from '@/lib/rate-limits';
+import { RATE_LIMITS } from '@/lib/rate-limits';
 import { getJWTUser } from '@/lib/jwt-auth';
-import { getConvexClient } from '@/lib/convex-client';
-import { api } from '@/convex/_generated/api';
 import { WideEvent } from '@/lib/wide-event';
 import { flushServerEvents, trackServerLog } from '@/lib/analytics-server';
 import { randomUUID } from 'crypto';
@@ -33,8 +31,6 @@ async function GETHandler(req: NextRequest) {
       return NextResponse.json({ error: 'Session token required' }, { status: 401 });
     }
 
-    // JWT is used only to establish whether the request is authenticated and to identify the user.
-    // Limits must not be derived from JWT claims (they can become stale until re-login).
     const jwtUser = await getJWTUser(req);
     const isActuallyAuthenticated = !!jwtUser;
     
@@ -43,19 +39,6 @@ async function GETHandler(req: NextRequest) {
     }
     
     wideEvent.setCustom('is_authenticated', isActuallyAuthenticated);
-
-    // Resolve latest roles from Convex so subscription downgrades reflect immediately.
-    let liveRoles: string[] | undefined;
-    if (jwtUser?.userId) {
-      try {
-        const convex = getConvexClient();
-  const u = await convex.query(api.users.getUserById, { id: jwtUser.userId as any });
-        liveRoles = Array.isArray((u as any)?.roles) ? (u as any).roles : undefined;
-      } catch (e: any) {
-        console.warn('[Session] Failed to fetch live roles from Convex, falling back to JWT roles');
-        liveRoles = Array.isArray((jwtUser as any)?.roles) ? (jwtUser as any).roles : undefined;
-      }
-    }
 
     trackServerLog('session_jwt_auth_status', {
       trace_id: traceId,
@@ -81,35 +64,21 @@ async function GETHandler(req: NextRequest) {
       remaining: s.remaining,
     }, jwtUser?.userId);
 
-  // Use JWT only for auth status; use live roles from DB for limit decisions.
-  const limit = getUserRateLimit(isActuallyAuthenticated, liveRoles);
+    // All users share the same Plus limit — everything is open.
+    const limit = RATE_LIMITS.PLUS_DAILY_LIMIT;
     const current = typeof s.currentCount === 'number' ? s.currentCount : 0;
-    
-    // Convex calculates remaining based on session's stored userId, which may be wrong for logged out users
-    let remaining: number;
-    if (isActuallyAuthenticated) {
-      remaining = typeof s.remaining === 'number' ? s.remaining : (limit - current);
-    } else {
-      // Convex treated session as authenticated (300 limit), but we want 150 limit
-      const convexRemaining = typeof s.remaining === 'number' ? s.remaining : (RATE_LIMITS.AUTHENTICATED_DAILY_LIMIT - current);
-      // If Convex remaining equals what it would be with authenticated limit, it was session-limited, so adjust to anonymous limit
-      if (convexRemaining === Math.max(0, RATE_LIMITS.AUTHENTICATED_DAILY_LIMIT - current)) {
-        remaining = Math.max(0, RATE_LIMITS.ANONYMOUS_DAILY_LIMIT - current);
-      } else {
-        remaining = convexRemaining;
-      }
-    }
-    remaining = Math.max(0, remaining);
+    const remaining = typeof s.remaining === 'number' ? Math.min(s.remaining, limit - current) : limit;
+    const clamped = Math.max(0, remaining);
 
     trackServerLog('session_rate_limit_status', {
       trace_id: traceId,
       limit,
-      remaining,
+      remaining: clamped,
       current,
     }, jwtUser?.userId);
     
     wideEvent.setCustom('limit', limit);
-    wideEvent.setCustom('remaining', remaining);
+    wideEvent.setCustom('remaining', clamped);
     wideEvent.setCustom('current_count', current);
     wideEvent.setCustom('latency_ms', Date.now() - startTime);
     wideEvent.finish(200);
@@ -117,7 +86,7 @@ async function GETHandler(req: NextRequest) {
 
     return NextResponse.json({
       limit,
-      remaining,
+      remaining: clamped,
       currentCount: current,
       isAuthenticated: isActuallyAuthenticated,
     });

@@ -136,10 +136,8 @@ export const getWrappedStats = query({
     }
     maxStreak = Math.max(maxStreak, currentStreak);
 
-    // Check if user is Plus member
-    const isPlusMember = user.roles?.some(
-      (role: string) => role.toLowerCase() === "paid"
-    ) ?? false;
+    // Everything is open — all users are Plus members.
+    const isPlusMember = true;
 
     // Account age in days
     const accountCreatedAt = user.createdAt;

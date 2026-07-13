@@ -741,7 +741,13 @@
     "info": {
       "includedFeatures": "Dahil edilen özellikler:",
       "hasAccess": "Tüm premium özelliklere erişiminiz var",
-      "manageInfo": "Müşteri portalında ödeme yönteminizi güncelleyebilir, faturaları görüntüleyebilir veya aboneliğinizi iptal edebilirsiniz."
+      "manageInfo": "Müşteri portalında ödeme yönteminizi güncelleyebilir, faturaları görüntüleyebilir veya aboneliğinizi iptal edebilirsiniz.",
+      "everythingIsOpen": "Tekir artık tamamen açık. Tüm Plus özellikleri — günde 600 istek dahil — herkese açıktır."
     }
+  },
+  "sunset": {
+    "title": "🌅 Tekir Kapanıyor",
+    "description": "Tekir hizmetlerini 1 Ekim 2026 itibarıyla sonlandırıyoruz. Artık burada arama yapamayacaksınız, ancak kod açık kaynak olarak kalacak.",
+    "action": "Türkçe duyuruyu oku →"
   }
 }

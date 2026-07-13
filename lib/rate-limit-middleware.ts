@@ -25,7 +25,7 @@ export async function checkRateLimit(
       success: false,
       response: NextResponse.json(
         { error: 'Session token required' },
-        { status: 401, headers: getRateLimitHeaders(RATE_LIMITS.ANONYMOUS_DAILY_LIMIT, false) }
+        { status: 401, headers: getRateLimitHeaders(RATE_LIMITS.PLUS_DAILY_LIMIT, false) }
       ),
     };
   }
@@ -37,7 +37,7 @@ export async function checkRateLimit(
       success: false,
       response: NextResponse.json(
         { error: 'Invalid or expired session token' },
-        { status: 401, headers: getRateLimitHeaders(RATE_LIMITS.ANONYMOUS_DAILY_LIMIT, false) }
+        { status: 401, headers: getRateLimitHeaders(RATE_LIMITS.PLUS_DAILY_LIMIT, false) }
       ),
     };
   }
@@ -98,8 +98,8 @@ export async function checkRateLimit(
 /**
  * Response headers for rate-limited endpoints
  */
-export function getRateLimitHeaders(currentCount: number, isAuthenticated: boolean = false) {
-  const limit = isAuthenticated ? RATE_LIMITS.AUTHENTICATED_DAILY_LIMIT : RATE_LIMITS.ANONYMOUS_DAILY_LIMIT;
+export function getRateLimitHeaders(currentCount: number, _isAuthenticated: boolean = false) {
+  const limit = RATE_LIMITS.PLUS_DAILY_LIMIT;
   const remaining = Math.max(0, limit - currentCount);
   const resetTime = new Date();
   resetTime.setUTCHours(24, 0, 0, 0); // Next midnight UTC

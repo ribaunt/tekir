@@ -14,13 +14,9 @@ export const RATE_LIMITS = {
 } as const;
 
 // Helper function to get user-specific rate limit based on roles
-export function getUserRateLimit(isAuthenticated: boolean, roles?: string[]): number {
-  // Check if user has 'paid' role (Tekir Plus)
-  if (roles && roles.some(role => role.toLowerCase() === 'paid')) {
-    return RATE_LIMITS.PLUS_DAILY_LIMIT;
-  }
-  
-  return isAuthenticated ? RATE_LIMITS.AUTHENTICATED_DAILY_LIMIT : RATE_LIMITS.ANONYMOUS_DAILY_LIMIT;
+// All users now get the highest (Tekir Plus) limit — everything is open.
+export function getUserRateLimit(_isAuthenticated: boolean, _roles?: string[]): number {
+  return RATE_LIMITS.PLUS_DAILY_LIMIT;
 }
 
 // Helper function to get session expiration

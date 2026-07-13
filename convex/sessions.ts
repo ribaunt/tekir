@@ -22,31 +22,9 @@ const scheduleLog = (
   scheduler.runAfter(0, internal.logging.logServerEvent, args);
 };
 
-// Helper to get user limit based on roles
-async function getUserLimit(ctx: any, userId: any): Promise<number> {
-  if (!userId) {
-    return RATE_LIMITS.ANONYMOUS_DAILY_LIMIT;
-  }
-
-  try {
-    const user = await ctx.db.get(userId);
-    if (user && user.roles) {
-      const isPaid = user.roles.some((role: string) => role.toLowerCase() === 'paid');
-      if (isPaid) {
-        return RATE_LIMITS.PLUS_DAILY_LIMIT;
-      }
-    }
-  } catch (error) {
-    scheduleLog(ctx, {
-      level: 'error',
-      message: 'Error fetching user for rate limit',
-      metadataJson: JSON.stringify({
-        error: error instanceof Error ? error.message : String(error),
-      }),
-    });
-  }
-
-  return RATE_LIMITS.AUTHENTICATED_DAILY_LIMIT;
+// Helper to get user limit — all users now get the highest (Plus) limit.
+async function getUserLimit(_ctx: any, _userId: any): Promise<number> {
+  return RATE_LIMITS.PLUS_DAILY_LIMIT;
 }
 
 // Session tracking for rate limiting (replaces Redis functionality)
@@ -498,7 +476,7 @@ export const getOrCreateSessionToken = mutation({
         return {
           sessionToken: existingIpSession.sessionToken,
           isExisting: true,
-          requestLimit: RATE_LIMITS.ANONYMOUS_DAILY_LIMIT,
+          requestLimit: RATE_LIMITS.PLUS_DAILY_LIMIT,
         };
       }
     }
@@ -518,7 +496,7 @@ export const getOrCreateSessionToken = mutation({
     return {
       sessionToken,
       isExisting: false,
-      requestLimit: RATE_LIMITS.ANONYMOUS_DAILY_LIMIT,
+      requestLimit: RATE_LIMITS.PLUS_DAILY_LIMIT,
     };
   },
 });

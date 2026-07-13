@@ -741,7 +741,13 @@
     "info": {
       "includedFeatures": "Enthaltene Funktionen:",
       "hasAccess": "Sie haben Zugriff auf alle Premium-Funktionen",
-      "manageInfo": "Sie können Ihre Zahlungsmethode aktualisieren, Rechnungen einsehen oder Ihr Abonnement im Kundenportal kündigen."
+      "manageInfo": "Sie können Ihre Zahlungsmethode aktualisieren, Rechnungen einsehen oder Ihr Abonnement im Kundenportal kündigen.",
+      "everythingIsOpen": "Tekir ist jetzt komplett offen. Alle Plus-Funktionen — einschließlich 600 täglicher Anfragen — stehen allen zur Verfügung."
     }
+  },
+  "sunset": {
+    "title": "🌅 Tekir wird eingestellt",
+    "description": "Wir stellen den Tekir-Dienst bis zum 1. Oktober 2026 ein. Sie können hier nicht mehr suchen, aber der Code bleibt Open Source.",
+    "action": "Türkische Ankündigung lesen →"
   }
 }

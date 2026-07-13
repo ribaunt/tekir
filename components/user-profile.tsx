@@ -60,7 +60,7 @@ export default function UserProfile({ mobileNavItems = [], showOnlyAvatar = fals
   const dropdownRef = useRef<HTMLDivElement>(null);
   const avatarPx = showOnlyAvatar ? (avatarSize ?? 40) : 32;
   const fallbackDisplayName = user?.name || user?.email || t("home.defaultUser");
-  const isPlusUser = user?.roles?.some((role: string) => role.toLowerCase() === 'paid');
+  const isPlusUser = true; // Everything is open
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

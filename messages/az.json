@@ -741,7 +741,13 @@
     "info": {
       "includedFeatures": "Daxil edilmiş funksiyalar:",
       "hasAccess": "Bütün premium funksiyalara girişiniz var",
-      "manageInfo": "Müştəri portalında ödəniş metodunuzu yeniləyə, fakturaları görə və ya abunəliyinizi ləğv edə bilərsiniz."
+      "manageInfo": "Müştəri portalında ödəniş metodunuzu yeniləyə, fakturaları görə və ya abunəliyinizi ləğv edə bilərsiniz.",
+      "everythingIsOpen": "Tekir artıq tamamilə açıqdır. Bütün Plus funksiyaları — gündə 600 sorğu daxil olmaqla — hər kəsə açıqdır."
     }
+  },
+  "sunset": {
+    "title": "🌅 Tekir Bağlanır",
+    "description": "Tekir xidmətlərini 1 Oktyabr 2026 tarixinə qədər bağlayırıq. Burada axtarış edə bilməyəcəksiniz, amma kod açıq mənbə olaraq qalacaq.",
+    "action": "Türk elanını oxu →"
   }
 }

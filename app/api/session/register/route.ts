@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { registerSessionToken, isConvexConfigured, hashIp, getRateLimitStatus } from '@/lib/convex-session';
 import { getJWTUser } from '@/lib/jwt-auth';
-import { RATE_LIMITS, getUserRateLimit, getSessionExpiration } from '@/lib/rate-limits';
+import { RATE_LIMITS, getSessionExpiration } from '@/lib/rate-limits';
 import { WideEvent } from '@/lib/wide-event';
 import { flushServerEvents } from '@/lib/analytics-server';
 import { randomUUID } from 'crypto';
@@ -87,16 +87,15 @@ async function POSTHandler(req: NextRequest) {
       const s = await getRateLimitStatus(token);
       status = {
         currentCount: s.currentCount ?? 0,
-        limit: s.limit ?? getUserRateLimit(!!userId, user?.roles),
-        remaining: s.remaining ?? getUserRateLimit(!!userId, user?.roles),
+        limit: s.limit ?? RATE_LIMITS.PLUS_DAILY_LIMIT,
+        remaining: s.remaining ?? RATE_LIMITS.PLUS_DAILY_LIMIT,
         isAuthenticated: !!(s.isAuthenticated ?? userId)
       };
     } catch (e) {
-      // Fall back to static values if Convex status fails
       status = {
         currentCount: 0,
-        limit: getUserRateLimit(!!userId, user?.roles),
-        remaining: getUserRateLimit(!!userId, user?.roles),
+        limit: RATE_LIMITS.PLUS_DAILY_LIMIT,
+        remaining: RATE_LIMITS.PLUS_DAILY_LIMIT,
         isAuthenticated: !!userId
       };
     }
