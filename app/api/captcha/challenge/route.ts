@@ -5,7 +5,7 @@ import { withAPIObservability } from '@/lib/api-observability';
 
 async function GETHandler(request: NextRequest) {
   try {
-    const challenges = createChallenge(4, 4, 300);
+    const challenges = await createChallenge(4, 4, 300);
 
     return NextResponse.json({ challenges });
   } catch (error) {

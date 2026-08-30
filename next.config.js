@@ -4,7 +4,7 @@ const isDev = process.env.NODE_ENV === 'development';
 const contentSecurityPolicy = (isDev
   ? `
     default-src 'self';
-    script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://*.ribaunt.com;
+    script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://unpkg.com https://*.ribaunt.com;
     script-src-attr 'none';
     style-src 'self' 'unsafe-inline';
     img-src 'self' data: https: blob: https://api.dicebear.com https://i.ytimg.com https://upload.wikimedia.org https://imgs.search.brave.com;
@@ -19,7 +19,7 @@ const contentSecurityPolicy = (isDev
   `
   : `
     default-src 'self';
-    script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.ribaunt.com;
+    script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://*.ribaunt.com;
     script-src-attr 'none';
     style-src 'self' 'unsafe-inline';
     img-src 'self' data: https: blob: https://api.dicebear.com https://i.ytimg.com https://upload.wikimedia.org https://imgs.search.brave.com;

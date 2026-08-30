@@ -15,14 +15,26 @@ export default function CaptchaPage() {
   const [resourceProofReady, setResourceProofReady] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [hostname, setHostname] = useState('localhost:3000');
+  const [currentDate, setCurrentDate] = useState('');
+  const [mounted, setMounted] = useState(false);
   const [widgetStatus, setWidgetStatus] = useState<'loading' | 'ready' | 'verifying' | 'done' | 'error'>(
     'loading'
   );
+
+  // Mark mounted to avoid SSR hydration abort of widget fetch
+  useEffect(() => { setMounted(true); }, []);
 
   // Get the return URL from either query param or current pathname
   useEffect(() => {
     if (typeof window === 'undefined') return;
     
+    // Set date client-only to avoid hydration mismatch (server vs client locale/timezone)
+    setCurrentDate(new Date().toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    }));
+
     // Set the hostname for display
     setHostname(window.location.host);
     
@@ -296,7 +308,7 @@ export default function CaptchaPage() {
       } else if (detail.state === 'initial') {
         setHeading('Verifying you are a human before proceeding...');
       } else if (detail.state === 'solving' && detail.progress > 0) {
-        setHeading(`Solving challenge... ${detail.progress}%`);
+        setHeading('Solving challenge...');
       }
     },
     [completeVerification, markWidgetLoaded, returnUrl]
@@ -322,18 +334,61 @@ export default function CaptchaPage() {
   );
 
   const handleEvent = useCallback(
-    (type: 'verify' | 'error' | 'state-change' | 'ready', detail: unknown) => {
+    (type: 'verify' | 'error' | 'state-change' | 'ready' | 'solver-backend', detail: unknown) => {
       console.log(`[captcha] event | type=${type}`, detail);
+      if (type === 'solver-backend') {
+        const backend = (detail as { backend: 'wasm' | 'js' })?.backend;
+        posthog.capture('captcha_solver_backend', {
+          backend,
+          return_url: returnUrl,
+        });
+      }
     },
-    []
+    [returnUrl]
   );
 
-  // Get current date
-  const currentDate = new Date().toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  });
+  // ribaunt v0.2.4 dispatches `solver-backend` from the worker, but the React
+  // wrapper does not forward it via onEvent — attach directly to the element.
+  // Mount-once: use MutationObserver to catch the element when it appears after
+  // resourceProofReady, no widgetStatus dep to avoid churn/abort.
+  useEffect(() => {
+    let el: HTMLElement | null = null;
+    let handler: ((e: Event) => void) | null = null;
+    let observer: MutationObserver | null = null;
+
+    const attach = (target: HTMLElement) => {
+      if (el === target) return;
+      if (el && handler) el.removeEventListener('solver-backend', handler as EventListener);
+      el = target;
+      handler = (e: Event) => {
+        const detail = (e as CustomEvent<{ backend: 'wasm' | 'js' }>).detail;
+        console.log(`[captcha] solver-backend | backend=${detail.backend}`);
+        posthog.capture('captcha_solver_backend', {
+          backend: detail.backend,
+          return_url: returnUrl,
+        });
+        handleEvent('solver-backend', detail);
+      };
+      el.addEventListener('solver-backend', handler as EventListener);
+    };
+
+    const tryAttach = () => {
+      const found = (widgetRef.current as unknown as HTMLElement | null)
+        ?? document.querySelector('.widget-container ribaunt-widget') as HTMLElement | null;
+      if (found) attach(found);
+      return !!found;
+    };
+
+    if (!tryAttach()) {
+      observer = new MutationObserver(() => { if (tryAttach() && observer) { observer.disconnect(); observer = null; } });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    return () => {
+      if (observer) observer.disconnect();
+      if (el && handler) el.removeEventListener('solver-backend', handler as EventListener);
+    };
+  }, [handleEvent, returnUrl]);
 
   return (
     <>
@@ -443,22 +498,28 @@ export default function CaptchaPage() {
               (e.currentTarget as HTMLImageElement).style.display = 'none';
             }}
           />
-          <h1>{hostname}</h1>
+          <h1 suppressHydrationWarning>{hostname}</h1>
         </div>
-        <h2>{heading}</h2>
+        <h2 suppressHydrationWarning>{heading}</h2>
 
-        <div className="widget-container">
+        <div className="widget-container" suppressHydrationWarning>
           {widgetStatus === 'loading' && (
             <div className="loading">Loading verification widget...</div>
           )}
-          {resourceProofReady ? (
+          {!mounted ? (
+            <div className="loading">Loading verification widget...</div>
+          ) : resourceProofReady ? (
             <RibauntWidget
+              key={`ribaunt-${mounted}-${resourceProofReady}`}
               ref={widgetRef}
               challengeEndpoint="/api/captcha/challenge"
               verifyEndpoint={`/api/captcha/verify${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`}
               autoVerify={true}
               solveTimeout={120000}
               showWarning={false}
+              showProgress={false}
+              wasmMode="preferred"
+              workerMode="preferred"
               fallback={<div className="loading">Loading verification widget...</div>}
               onVerify={handleVerify}
               onError={handleError}
@@ -523,7 +584,7 @@ export default function CaptchaPage() {
           >
             <span>Secured by Ribaunt</span>
           </a>
-          <p className="date">{currentDate}</p>
+          <p className="date" suppressHydrationWarning>{currentDate || '\u00A0'}</p>
         </footer>
       </div>
     </>
