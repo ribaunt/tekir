@@ -10,6 +10,9 @@
   <a href="https://tekir.co/links">Links & More</a>
 </p>
 
+> [!WARNING]  
+> Hosted Tekir is being sunset. You won't be able to use Tekir via `tekir.co` starting October 1 2026. [Read the Turkish announcement.](https://btt.community/t/tekir-meta-arama-motoru/18108/150?u=musti)
+
 ### What Tekir is
 
 Tekir is a fast, privacy‑first search experience that helps you find what you need across the web, images, and news—and also chat with an AI assistant called Karakulak. It doesn’t track you or collect personal data, keeping your searches private by design. Tekir aims to feel simple and snappy, with a clean interface that gets out of your way so you can focus on finding answers.
