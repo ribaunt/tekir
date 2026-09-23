@@ -3,7 +3,7 @@
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Mail, CheckCircle2, AlertCircle, ArrowLeft, RotateCcw, Loader2 } from "lucide-react";
+import { Mail, CheckCircle2, AlertCircle, ArrowLeft, RotateCcw } from "lucide-react";
 import { getRedirectUrlWithFallback } from "@/lib/utils";
 import { showToast } from "@/lib/toast";
 
@@ -105,8 +105,8 @@ function VerifyEmailForm() {
                 Your email has been successfully verified. Signing you in...
               </p>
             </div>
-            <div className="flex justify-center">
-              <Loader2 className="w-5 h-5 animate-spin text-primary" />
+            <div className="flex justify-center" aria-label="Signing you in">
+              <div className="h-3 w-40 rounded bg-muted animate-pulse-fast" />
             </div>
           </div>
         </div>
@@ -171,10 +171,7 @@ function VerifyEmailForm() {
               className="w-full bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-primary-foreground font-medium py-3 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2"
             >
               {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Verifying...
-                </>
+                <>Verifying...</>
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
@@ -213,8 +210,9 @@ function LoadingFallback() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="max-w-md w-full mx-4">
-        <div className="bg-card border border-border rounded-xl shadow-lg p-8 text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto" />
+        <div className="bg-card border border-border rounded-xl shadow-lg p-8 text-center space-y-3" aria-label="Loading">
+          <div className="h-5 w-32 rounded bg-muted animate-pulse-fast mx-auto" />
+          <div className="h-3 w-full rounded bg-muted animate-pulse-fast" />
           <p className="mt-4 text-muted-foreground">Loading...</p>
         </div>
       </div>

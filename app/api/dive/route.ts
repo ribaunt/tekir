@@ -199,12 +199,60 @@ async function POSTHandler(req: NextRequest) {
   }
 
   try {
-    const { query, pages } = await req.json() as { query: string, pages: PageContent[] };
+    const body = await req.json() as {
+      query: string;
+      pages?: PageContent[];
+      country?: string;
+      safesearch?: string;
+    };
+    const { query } = body;
+    let pages = body.pages;
+    const country = body.country || 'ALL';
+    const safesearch = body.safesearch || 'moderate';
 
-    if (!query || !pages || pages.length === 0) {
-      wideEvent.setError({ type: 'ValidationError', message: 'Missing query or pages', code: 'invalid_input' });
+    if (!query) {
+      wideEvent.setError({ type: 'ValidationError', message: 'Missing query', code: 'invalid_input' });
       wideEvent.finish(400);
-      return NextResponse.json({ error: 'Missing query or pages for Dive mode.' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing query for Dive mode.' }, { status: 400 });
+    }
+
+    // Query-only mode: resolve web candidates server-side so the client can
+    // fire Dive immediately in parallel instead of waiting for web results.
+    if (!pages || pages.length === 0) {
+      wideEvent.setCustom('dive_mode', 'query_only');
+      try {
+        const params = new URLSearchParams({
+          q: query,
+          country,
+          safesearch,
+          spellcheck: 'false',
+          text_decorations: 'false',
+        });
+        const searchRes = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip',
+            'X-Subscription-Token': process.env.BRAVE_SEARCH_KEY || '',
+          },
+        });
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          pages = (searchData.web?.results || []).slice(0, 8).map((r: any) => ({
+            url: r.url,
+            title: r.title,
+            snippet: r.description,
+          }));
+        }
+      } catch {
+        // Fall through to the validation error below.
+      }
+    }
+
+    if (!pages || pages.length === 0) {
+      wideEvent.setError({ type: 'ValidationError', message: 'Missing pages', code: 'invalid_input' });
+      wideEvent.finish(400);
+      return NextResponse.json({ error: 'Missing pages for Dive mode.' }, { status: 400 });
     }
 
     wideEvent.setCustom('query_length', query.length);

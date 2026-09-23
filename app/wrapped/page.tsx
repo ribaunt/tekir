@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/components/auth-provider";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { Loader2, RotateCcw, Home, Sparkles, Search, Heart, Calendar, Flame, TrendingUp, Lock, Gift, Rocket } from "lucide-react";
+import { RotateCcw, Home, Sparkles, Search, Heart, Calendar, Flame, TrendingUp, Lock, Gift, Rocket } from "lucide-react";
 import posthog from "posthog-js";
 
 // Funny fake search queries for the privacy demonstration
@@ -167,7 +167,11 @@ export default function WrappedPage() {
           animate={{ opacity: 1 }}
           className="text-center"
         >
-          <Loader2 className="w-8 h-8 text-foreground/60 animate-spin mx-auto mb-4" />
+          <div className="mx-auto mb-4 space-y-2 max-w-xs" aria-label="Preparing your 2025 recap">
+            <div className="h-8 w-8 rounded-full bg-muted animate-pulse-fast mx-auto" />
+            <div className="h-4 w-48 rounded bg-muted animate-pulse-fast mx-auto" />
+            <div className="h-3 w-32 rounded bg-muted animate-pulse-fast mx-auto" />
+          </div>
           <p className="text-foreground/50 text-sm">Preparing your 2025 recap...</p>
         </motion.div>
       </div>

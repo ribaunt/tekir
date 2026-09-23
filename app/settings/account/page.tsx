@@ -404,11 +404,27 @@ export default function AccountSettingsPage() {
     }
   };
 
+  const sidebarItemsEarly: SettingsNavItem[] = [
+    { href: "/settings/search", icon: Search, label: tSettings("search") },
+    { href: "/settings/account", icon: User, label: tSettings("account"), active: true },
+    { href: "/settings/privacy", icon: Shield, label: tSettings("privacy") },
+    { href: "/settings/analytics", icon: BarChart3, label: tSettings("analytics") },
+    { href: "/settings/about", icon: Info, label: tSettings("about") },
+  ];
+
   if (status === "loading") {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
+      <SettingsShell title={tSettings("title")} currentSectionLabel={tSettings("account")} sidebar={sidebarItemsEarly} mobileNavItems={mobileNavItems}>
+        <div className="space-y-4" aria-label="Loading account settings">
+          <div className="h-7 w-48 rounded bg-muted animate-pulse-fast" />
+          <div className="h-4 w-72 rounded bg-muted animate-pulse-fast" />
+          <div className="rounded-lg border border-border bg-card p-6 space-y-3">
+            <div className="h-4 w-1/3 rounded bg-muted animate-pulse-fast" />
+            <div className="h-10 w-full rounded bg-muted animate-pulse-fast" />
+            <div className="h-10 w-full rounded bg-muted animate-pulse-fast" />
+          </div>
+        </div>
+      </SettingsShell>
     );
   }
 
@@ -495,7 +511,7 @@ export default function AccountSettingsPage() {
                           disabled={isRegeneratingAvatar || isLoading || isUploadingAvatar}
                           className="inline-flex items-center gap-2 text-sm bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors disabled:opacity-50 px-4 py-2 rounded-lg border"
                         >
-                          <RefreshCw className={`w-4 h-4 ${isRegeneratingAvatar ? 'animate-spin' : ''}`} />
+                          <RefreshCw className="w-4 h-4" aria-hidden="true" />
                           {tAccount("profilePicture.generateButton")}
                         </button>
                       </div>

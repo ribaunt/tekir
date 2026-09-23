@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { useAuth } from "@/components/auth-provider";
 
@@ -103,7 +103,7 @@ export function MoneroCallbackClient({
           ) : successful ? (
             <CheckCircle2 className="h-10 w-10 text-primary" />
           ) : (
-            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            <div className="h-10 w-10 rounded-full bg-muted animate-pulse-fast" aria-label="Waiting for confirmation" />
           )}
         </div>
 

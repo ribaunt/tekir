@@ -31,6 +31,28 @@
   .shimmer-soft { animation: none; }
 }
 
+/* Fast placeholders: keep every skeleton/shimmer cycle under one second
+   so loading feels fast, not calm. Tailwind's default animate-pulse is
+   ~2s; use .animate-pulse-fast for all skeletons instead. */
+@keyframes tekir-pulse-fast {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.animate-pulse-fast {
+  animation: tekir-pulse-fast 700ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Override Tailwind's default 2s pulse so any remaining animate-pulse
+   placeholder also stays under one second per cycle. */
+.animate-pulse {
+  animation-duration: 700ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-fast { animation: none; }
+}
+
 :root {
   --foreground-rgb: 0, 0, 0;
   --background-start-rgb: 214, 219, 220;

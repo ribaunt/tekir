@@ -461,7 +461,7 @@ export default function SearchSettingsPage() {
                       <div className="flex items-center gap-2">
                         <h4 className="text-lg font-medium">{tSearchPage('sections.aiFeatures.karakulakTitle')}</h4>
                         {isSyncing && syncEnabled && (
-                          <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                          <div className="w-3 h-3 rounded-full bg-muted animate-pulse-fast" aria-label="Syncing"></div>
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
@@ -1291,7 +1291,7 @@ export default function SearchSettingsPage() {
               <div className="text-center text-sm text-muted-foreground">
                 {isSyncing && syncEnabled ? (
                   <div className="flex items-center justify-center gap-2">
-                    <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                    <div className="h-3 w-24 rounded bg-muted animate-pulse-fast" aria-hidden="true"></div>
                     <p>{tSearchPage('syncStatus.syncing')}</p>
                   </div>
                 ) : syncEnabled ? (

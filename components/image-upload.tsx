@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from 'react';
-import { Camera, Upload, X, Loader2 } from 'lucide-react';
+import { Camera, Upload, X } from 'lucide-react';
 import Image from 'next/image';
 import { fileToBase64, validateImageFile } from '@/lib/image-client';
 import { isTrustedUrl } from '@/lib/sanitize';
@@ -184,10 +184,10 @@ export default function ImageUpload({
         </div>
         )}
 
-        {/* Loading overlay */}
+        {/* Uploading placeholder: skeleton shimmer, not a spinner */}
         {isUploading && (
-        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 text-white animate-spin" />
+        <div className="absolute inset-0 bg-black/60 flex items-center justify-center" aria-label="Uploading image">
+          <div className="w-3/4 h-3 rounded bg-white/30 animate-pulse-fast" />
         </div>
         )}
       </div>

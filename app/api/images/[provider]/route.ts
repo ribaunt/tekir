@@ -205,7 +205,7 @@ async function GETHandler(req: NextRequest, { params }: { params: Promise<{ prov
     switch (provider.toLowerCase()) {
       case 'brave': {
           results = await getBraveImages(query, count);
-          
+
           const responseTime = Date.now() - now;
           trackServerSearch({
             search_type: 'images',
@@ -214,25 +214,30 @@ async function GETHandler(req: NextRequest, { params }: { params: Promise<{ prov
             response_time_ms: responseTime,
             user_authenticated: !!(await getJWTUser(req)),
           });
-          
+
           const response: SearchResponse = {
             results,
             provider: 'Brave'
           };
-          
+
           flushServerEvents().catch((err) => {
             if (process.env.NODE_ENV === 'development') {
               console.warn('[PostHog] Failed to flush events:', err);
             }
           });
-          
-          return NextResponse.json(response, { status: 200 });
+
+          // Empty payloads are transient upstream gaps, not cacheable facts.
+          // no-store keeps the client from caching (and retry-busting) them.
+          return NextResponse.json(response, {
+            status: 200,
+            headers: results.length === 0 ? { 'Cache-Control': 'no-store' } : undefined,
+          });
         }
         case 'duck': {
           /* Fix after DuckDuckGo API is available */
-          
+
           results = await getBraveImages(query, count);
-          
+
           const responseTime = Date.now() - now;
           trackServerSearch({
             search_type: 'images',
@@ -241,19 +246,22 @@ async function GETHandler(req: NextRequest, { params }: { params: Promise<{ prov
             response_time_ms: responseTime,
             user_authenticated: !!(await getJWTUser(req)),
           });
-          
+
           const response: SearchResponse = {
             results,
             provider: 'Brave'
           };
-          
+
           flushServerEvents().catch((err) => {
             if (process.env.NODE_ENV === 'development') {
               console.warn('[PostHog] Failed to flush events:', err);
             }
           });
-          
-          return NextResponse.json(response, { status: 200 });
+
+          return NextResponse.json(response, {
+            status: 200,
+            headers: results.length === 0 ? { 'Cache-Control': 'no-store' } : undefined,
+          });
         }
         case 'google': {
           const authUser = await getJWTUser(req);
@@ -282,7 +290,10 @@ async function GETHandler(req: NextRequest, { params }: { params: Promise<{ prov
             }
           });
 
-          return NextResponse.json(response, { status: 200 });
+          return NextResponse.json(response, {
+            status: 200,
+            headers: results.length === 0 ? { 'Cache-Control': 'no-store' } : undefined,
+          });
         }
       default:
         return NextResponse.json({ error: 'Invalid or unsupported provider. Supported providers are "brave", "google", and "duck".' }, { status: 400 });

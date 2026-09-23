@@ -14,6 +14,7 @@ import SunsetBanner from "@/components/sunset-banner";
 import { trackClientLog } from "@/lib/posthog-analytics";
 import { initClientConsoleForwarding } from "@/lib/console-forwarder-client";
 import { trackRouteChange } from "@/instrumentation-client";
+import { useGlobalLinkPrefetch, markRouteVisited } from "@/hooks/use-route-prefetch";
 
 // Helper functions for cookie manipulation using document.cookie
 const getCookie = (name: string): string | undefined => {
@@ -48,6 +49,10 @@ export default function ClientLayout({
 }) {
   const pathname = usePathname();
   const hasTrackedRouteChange = useRef(false);
+
+  // Prefetch internal routes on link hover/focus (not only on click),
+  // with a visited-page cache so back-navigation never refetches.
+  useGlobalLinkPrefetch();
 
   // Prefetch bangs when the app initializes
   useEffect(() => {
@@ -112,6 +117,8 @@ export default function ClientLayout({
   }, []);
 
   useEffect(() => {
+    markRouteVisited(`${pathname}${typeof window !== "undefined" ? window.location.search : ""}`);
+
     if (!hasTrackedRouteChange.current) {
       hasTrackedRouteChange.current = true;
       return;

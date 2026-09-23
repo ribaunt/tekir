@@ -398,9 +398,6 @@ function SearchPageContent() {
   const imagesAbortRef = useRef<AbortController | null>(null);
   const newsAbortRef = useRef<AbortController | null>(null);
   const videosAbortRef = useRef<AbortController | null>(null);
-  const imageRetryRef = useRef(false);
-  const newsRetryRef = useRef(false);
-  const videoRetryRef = useRef(false);
   const suggestionsAbortRef = useRef<AbortController | null>(null);
   const wikipediaAbortRef = useRef<AbortController | null>(null);
   const aiAbortControllerRef = useRef<AbortController | null>(null);
@@ -455,6 +452,48 @@ function SearchPageContent() {
     }
 
     let isMounted = true;
+    // Cache-first: resolve from cache before any placeholder is shown,
+    // so navigating back never flashes a skeleton.
+    const engineToUseEarly = getEngineForMode(engineRef.current, 'web');
+    const storedCountryEarly = searchCountryRef.current;
+    const storedSafesearchEarly = safesearchRef.current;
+    const storedLangEarly = languageRef.current || (typeof navigator !== 'undefined' ? navigator.language?.slice(0, 2) : '');
+    const cachedEarly = SearchCache.get(
+      'search',
+      engineToUseEarly,
+      currentQuery,
+      {
+        country: storedCountryEarly,
+        safesearch: storedSafesearchEarly,
+        ...(freshnessFilter ? { freshness: freshnessFilter } : {}),
+        ...(storedLangEarly ? { lang: storedLangEarly } : {}),
+      }
+    ) as { results?: SearchResult[]; videos?: VideoResult[]; news?: NewsResult[] } | null;
+    if (cachedEarly && Array.isArray(cachedEarly.results)) {
+      setResults(cachedEarly.results);
+      setVideoResults(Array.isArray(cachedEarly.videos) ? cachedEarly.videos : []);
+      try {
+        const normalized = Array.isArray(cachedEarly.news)
+          ? cachedEarly.news.map((n: any) => ({
+              title: n.title || n.name || '',
+              description: n.description || n.snippet || '',
+              url: n.url || n.link || '',
+              source: n.meta_url?.netloc || n.source || '',
+              age: n.age || n.page_age || '',
+              thumbnail: n.thumbnail?.src || n.thumbnail?.original || undefined,
+            }))
+          : [];
+        setNewsResults(normalized);
+      } catch {
+        setNewsResults([]);
+      }
+      setLoading(false);
+      setSearchError(null);
+      lastResultsQueryRef.current = currentQuery;
+      lastResultsSignatureRef.current = resultSignature;
+      return;
+    }
+
     setLoading(true);
     setResults([]);
     setWikiData(null);
@@ -476,7 +515,9 @@ function SearchPageContent() {
     const engineToUse = getEngineForMode(engineRef.current, 'web');
 
     const fetchRegularSearch = async () => {
-      // Wait for session initialization to avoid 401 on first load
+      // Don't let session registration block first paint: fetchWithSessionRefreshAndCache
+      // already retries once after refreshing the session, so we only wait
+      // briefly (and never when the cache already resolved above).
       if (typeof window !== 'undefined' && !(window as any).__sessionRegistered) {
         await new Promise(resolve => {
           const handler = () => {
@@ -484,11 +525,11 @@ function SearchPageContent() {
             resolve(true);
           };
           window.addEventListener('session-registered', handler);
-          // Timeout fallback
+          // Short timeout fallback so slow session init never gates results.
           setTimeout(() => {
             window.removeEventListener('session-registered', handler);
             resolve(true);
-          }, 2000);
+          }, 400);
         });
       }
 
@@ -633,54 +674,11 @@ function SearchPageContent() {
         if (!response.ok) throw new Error(`Image search failed with status ${response.status}`);
         return response.json();
       })
-      .then(async (data) => {
+      // Empty payloads are never cached server-side (no-store), so a single
+      // fetch is enough — no cache-busting retry needed.
+      .then((data) => {
         if (data.results) {
-          // If cached result is empty, retry once with a cache-busting param
-          if (Array.isArray(data.results) && data.results.length === 0 && !imageRetryRef.current) {
-            imageRetryRef.current = true;
-            try {
-              // Abort previous controller and create a fresh one for retry
-              if (imagesAbortRef.current) {
-                try { imagesAbortRef.current.abort(); } catch { }
-              }
-              imagesAbortRef.current = new AbortController();
-              const retrySignal = imagesAbortRef.current.signal;
-              const retryUrl = `${imagesUrl}&_cb=${Date.now()}`;
-              const retryRes = await fetchWithSessionRefreshAndCache(
-                retryUrl,
-                { signal: retrySignal },
-                {
-                  searchType: 'images',
-                  provider: imageEngine,
-                  query: query,
-                  searchParams: { cacheBust: '1', ...(storedLang ? { lang: storedLang } : {}) }
-                }
-              );
-              if (!retryRes.ok) throw new Error(`Image retry failed with status ${retryRes.status}`);
-              const retryData = await retryRes.json();
-              if (retryData.results) setImageResults(retryData.results);
-            } catch (err) {
-              if (isExpectedAbort(err)) {
-                return;
-              }
-
-              if (process.env.NODE_ENV === 'development') {
-                console.error('Image retry failed:', err);
-              }
-              trackAsyncError(err, {
-                operation: 'images_retry',
-                component: 'SearchPage',
-                metadata: { query }
-              });
-            } finally {
-              setImageLoading(false);
-            }
-            return;
-          }
-
           setImageResults(data.results);
-          // Clear retry flag if we have real results
-          imageRetryRef.current = false;
         }
       })
       .catch((error) => {
@@ -694,8 +692,7 @@ function SearchPageContent() {
         trackNetworkError(error, imagesUrl, 'GET');
       })
       .finally(() => {
-        // If a retry is in progress, its own finally will update loading; avoid clobbering
-        if (!imageRetryRef.current) setImageLoading(false);
+        setImageLoading(false);
       });
     return () => {
       if (imagesAbortRef.current) {
@@ -732,51 +729,11 @@ function SearchPageContent() {
         if (!response.ok) throw new Error(`Video search failed with status ${response.status}`);
         return response.json();
       })
-      .then(async (data) => {
+      // Empty payloads are never cached server-side (no-store), so a single
+      // fetch is enough — no cache-busting retry needed.
+      .then((data) => {
         if (data.results) {
-          if (Array.isArray(data.results) && data.results.length === 0 && !videoRetryRef.current) {
-            videoRetryRef.current = true;
-            try {
-              if (videosAbortRef.current) {
-                try { videosAbortRef.current.abort(); } catch { }
-              }
-              videosAbortRef.current = new AbortController();
-              const retrySignal = videosAbortRef.current.signal;
-              const retryUrl = `${videosUrl}&_cb=${Date.now()}`;
-              const retryRes = await fetchWithSessionRefreshAndCache(
-                retryUrl,
-                { signal: retrySignal },
-                {
-                  searchType: 'videos',
-                  provider: videoEngine,
-                  query: query,
-                  searchParams: { cacheBust: '1', ...(storedLang ? { lang: storedLang } : {}) }
-                }
-              );
-              if (!retryRes.ok) throw new Error(`Video retry failed with status ${retryRes.status}`);
-              const retryData = await retryRes.json();
-              if (retryData.results) setVideoResults(retryData.results);
-            } catch (err) {
-              if (isExpectedAbort(err)) {
-                return;
-              }
-
-              if (process.env.NODE_ENV === 'development') {
-                console.error('Video retry failed:', err);
-              }
-              trackAsyncError(err, {
-                operation: 'videos_retry',
-                component: 'SearchPage',
-                metadata: { query }
-              });
-            } finally {
-              setVideoLoading(false);
-            }
-            return;
-          }
-
           setVideoResults(data.results);
-          videoRetryRef.current = false;
         }
       })
       .catch((error) => {
@@ -790,7 +747,7 @@ function SearchPageContent() {
         trackNetworkError(error, videosUrl, 'GET');
       })
       .finally(() => {
-        if (!videoRetryRef.current) setVideoLoading(false);
+        setVideoLoading(false);
       });
 
     return () => {
@@ -842,52 +799,11 @@ function SearchPageContent() {
         if (!response.ok) throw new Error(`News search failed with status ${response.status}`);
         return response.json();
       })
-      .then(async (data) => {
+      // Empty payloads are never cached server-side (no-store), so a single
+      // fetch is enough — no cache-busting retry needed.
+      .then((data) => {
         if (data.results) {
-          // If cached result is empty, retry once with cache-bust
-          if (Array.isArray(data.results) && data.results.length === 0 && !newsRetryRef.current) {
-            newsRetryRef.current = true;
-            try {
-              if (newsAbortRef.current) {
-                try { newsAbortRef.current.abort(); } catch { }
-              }
-              newsAbortRef.current = new AbortController();
-              const retrySignal = newsAbortRef.current.signal;
-              const retryUrl = `${newsUrl}&_cb=${Date.now()}`;
-              const retryRes = await fetchWithSessionRefreshAndCache(
-                retryUrl,
-                { signal: retrySignal },
-                {
-                  searchType: 'news',
-                  provider: newsEngine,
-                  query: query,
-                  searchParams: { country: storedCountry, safesearch: storedSafesearch, cacheBust: '1', ...(storedLang ? { lang: storedLang } : {}) }
-                }
-              );
-              if (!retryRes.ok) throw new Error(`News retry failed with status ${retryRes.status}`);
-              const retryData = await retryRes.json();
-              if (retryData.results) setNewsResults(retryData.results);
-            } catch (err) {
-              if (isExpectedAbort(err)) {
-                return;
-              }
-
-              if (process.env.NODE_ENV === 'development') {
-                console.error('News retry failed:', err);
-              }
-              trackAsyncError(err, {
-                operation: 'news_retry',
-                component: 'SearchPage',
-                metadata: { query }
-              });
-            } finally {
-              setNewsLoading(false);
-            }
-            return;
-          }
-
           setNewsResults(data.results);
-          newsRetryRef.current = false;
         }
       })
       .catch((error) => {
@@ -901,7 +817,7 @@ function SearchPageContent() {
         trackNetworkError(error, newsUrl, 'GET');
       })
       .finally(() => {
-        if (!newsRetryRef.current) setNewsLoading(false);
+        setNewsLoading(false);
       });
     return () => {
       if (newsAbortRef.current) {
@@ -910,14 +826,6 @@ function SearchPageContent() {
       }
     };
   }, [query, searchEngine, searchType, getEngineForMode]);
-
-  // Reset retry flags when query or engine changes so new queries can retry again
-  useEffect(() => {
-    imageRetryRef.current = false;
-    newsRetryRef.current = false;
-  }, [query, searchEngine]);
-
-
 
   // Regular AI (Karakulak) — fire immediately in parallel when Dive mode is OFF
   useEffect(() => {
@@ -1060,7 +968,10 @@ function SearchPageContent() {
     };
   }, [query, aiEnabled, aiModel, aiDiveEnabled]);
 
-  // Dive Mode — wait for web results to arrive, then send Dive request in parallel
+  // Dive Mode — fire immediately in parallel with web results. The backend
+  // resolves candidates server-side (query-only mode), so there is no
+  // client waterfall. If web results already arrived, attach them so both
+  // sides rank from the same candidates.
   useEffect(() => {
     if (!query) {
       aiRequestInProgressRef.current = null;
@@ -1091,16 +1002,13 @@ function SearchPageContent() {
     }
 
     const hasFreshResults = results.length > 0 && lastResultsQueryRef.current === query;
-    if (!hasFreshResults) {
-      setDiveLoading(true);
-      return;
-    }
-
-    const candidateResults = results.slice(0, 8).map((r) => ({
-      url: r.url,
-      title: r.title,
-      snippet: r.description
-    }));
+    const candidateResults = hasFreshResults
+      ? results.slice(0, 8).map((r) => ({
+          url: r.url,
+          title: r.title,
+          snippet: r.description,
+        }))
+      : undefined;
 
     const makeDiveRequest = async () => {
       try {
@@ -1119,13 +1027,21 @@ function SearchPageContent() {
         const diveResponse = await fetchWithSessionRefreshAndCache('/api/dive', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query, pages: candidateResults }),
+          body: JSON.stringify(
+            candidateResults
+              ? { query, pages: candidateResults }
+              : {
+                  query,
+                  country: searchCountryRef.current,
+                  safesearch: safesearchRef.current,
+                }
+          ),
           signal: aiAbortControllerRef.current.signal
         }, {
           searchType: 'dive',
           provider: 'dive',
           query,
-          searchParams: { candidates: String(candidateResults.length) }
+          searchParams: candidateResults ? { candidates: String(candidateResults.length) } : { mode: 'query_only' }
         });
 
         if (!diveResponse.ok) {
@@ -1193,7 +1109,10 @@ function SearchPageContent() {
         aiAbortControllerRef.current = null;
       }
     };
-  }, [query, aiEnabled, aiDiveEnabled, results]);
+    // `results` intentionally read once at fire time: Dive resolves candidates
+    // server-side in query-only mode, so web results must not re-trigger it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, aiEnabled, aiDiveEnabled]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1525,6 +1444,8 @@ function SearchPageContent() {
       return;
     }
 
+    // Single round trip: the backend resolves suggest -> summary ->
+    // fallback search inline and returns the full payload.
     const fetchWikipediaData = async () => {
       setWikiLoading(true);
       try {
@@ -1567,38 +1488,31 @@ function SearchPageContent() {
         const suggestionResponse = await fetchWithSessionRefreshAndCache(suggestionUrl.toString(), { signal: wikiSignal });
 
         if (!suggestionResponse.ok) {
-          throw new Error(`Wikipedia suggestion API failed: ${suggestionResponse.status}`);
+          // 404 = no summary resolved server-side; not an error worth logging.
+          setWikiData(null);
+          return;
         }
 
         const suggestionData = await suggestionResponse.json();
 
-        const articleTitle = suggestionData.article;
-        const language = suggestionData.language || 'en';
-
-        if (articleTitle) {
-          const detailsUrl = `https://${language}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(articleTitle)}`;
-          const detailsResponse = await fetch(detailsUrl, { signal: wikiSignal });
-          const details = await detailsResponse.json();
-
-          if (details.type === "standard" || details.type === "disambiguation") {
-            const wikipediaData: WikipediaData = {
-              title: details.title,
-              extract: details.extract,
-              pageUrl: details.content_urls?.desktop?.page || `https://${language}.wikipedia.org/wiki/${encodeURIComponent(details.title)}`,
-              ...(details.thumbnail && { thumbnail: details.thumbnail }),
-              description: details.description,
-              language: language,
-            };
-
-            // Cache the successful result
-            SearchCache.setWikipedia(query, wikipediaData, browserLanguage);
-            setWikiData(wikipediaData);
-          } else {
-            await fallbackToWikipediaSearch(language);
-          }
-        } else {
-          await fallbackToWikipediaSearch(language);
+        if (!suggestionData.title || !suggestionData.extract) {
+          setWikiData(null);
+          return;
         }
+
+        const language = suggestionData.summaryLanguage || suggestionData.language || 'en';
+        const wikipediaData: WikipediaData = {
+          title: suggestionData.title,
+          extract: suggestionData.extract,
+          pageUrl: suggestionData.pageUrl || `https://${language}.wikipedia.org/wiki/${encodeURIComponent(suggestionData.title)}`,
+          ...(suggestionData.thumbnail ? { thumbnail: suggestionData.thumbnail } : {}),
+          ...(suggestionData.description ? { description: suggestionData.description } : {}),
+          language,
+        };
+
+        // Cache the successful result
+        SearchCache.setWikipedia(query, wikipediaData, browserLanguage);
+        setWikiData(wikipediaData);
       } catch (error) {
         if (isExpectedAbort(error)) {
           return;
@@ -1610,55 +1524,6 @@ function SearchPageContent() {
         setWikiData(null);
       } finally {
         setWikiLoading(false);
-      }
-    };
-
-    const fallbackToWikipediaSearch = async (language: string = 'en') => {
-      try {
-        const searchUrl = `https://${language}.wikipedia.org/w/api.php?origin=*&action=query&list=search&srsearch=${encodeURIComponent(
-          query
-        )}&format=json&utf8=1`;
-
-        const searchResponse = await fetch(searchUrl, { signal: wikipediaAbortRef.current?.signal });
-        const searchData = await searchResponse.json();
-
-        if (searchData.query?.search?.length > 0) {
-          const topResult = searchData.query.search[0];
-          const pageTitle = topResult.title;
-
-          const detailsUrl = `https://${language}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle)}`;
-          const detailsResponse = await fetch(detailsUrl, { signal: wikipediaAbortRef.current?.signal });
-          const details = await detailsResponse.json();
-
-          if (details.type === "standard" || details.type === "disambiguation") {
-            const wikipediaData: WikipediaData = {
-              title: details.title,
-              extract: details.extract,
-              pageUrl: details.content_urls?.desktop?.page || `https://${language}.wikipedia.org/wiki/${encodeURIComponent(details.title)}`,
-              ...(details.thumbnail && { thumbnail: details.thumbnail }),
-              description: details.description,
-              language: language,
-            };
-
-            // Cache the fallback result as well
-            const browserLanguage = settings.language || navigator.language?.slice(0, 2);
-            SearchCache.setWikipedia(query, wikipediaData, browserLanguage);
-            setWikiData(wikipediaData);
-          } else {
-            setWikiData(null);
-          }
-        } else {
-          setWikiData(null);
-        }
-      } catch (error) {
-        if (isExpectedAbort(error)) {
-          return;
-        }
-
-        if (process.env.NODE_ENV === 'development') {
-          console.error("Fallback Wikipedia search failed:", error);
-        }
-        setWikiData(null);
       }
     };
 

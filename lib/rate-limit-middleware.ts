@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isValidSessionToken, incrementAndCheckRequestCount, getRateLimitStatus } from '@/lib/convex-session';
-import { RATE_LIMITS } from '@/lib/rate-limits';
+import { cookies } from 'next/headers';
+import { randomBytes } from 'crypto';
+import { incrementAndCheckRequestCount, getRateLimitStatus, registerSessionToken, hashIp } from '@/lib/convex-session';
+import { RATE_LIMITS, getSessionExpiration } from '@/lib/rate-limits';
 
 interface RateLimitResult {
   success: boolean;
@@ -13,33 +15,87 @@ interface RateLimitResult {
  * Middleware function to check session token and rate limits for API routes
  * Returns success: true if request should proceed, or success: false with error response
  */
+function getClientIp(request: NextRequest): string | null {
+  const forwarded = request.headers.get('x-forwarded-for');
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return request.headers.get('x-real-ip') ?? null;
+}
+
+// Self-heal a missing/invalid session inline so the first request succeeds
+// instead of forcing the client through a register -> retry round trip.
+// The fresh token is set as a cookie via next/headers, so the browser
+// carries it on subsequent requests.
+async function provisionSession(request: NextRequest): Promise<string | null> {
+  try {
+    const clientIp = getClientIp(request);
+    const hashedIp = clientIp ? hashIp(clientIp) : null;
+    const expirationInSeconds = getSessionExpiration();
+    let deviceId = request.cookies.get('device-id')?.value || null;
+    if (!deviceId) {
+      deviceId = randomBytes(16).toString('hex');
+    }
+    const token = await registerSessionToken(hashedIp, expirationInSeconds, null, deviceId);
+    if (!token) return null;
+    const cookieStore = await cookies();
+    cookieStore.set('session-token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: expirationInSeconds,
+      path: '/',
+    });
+    cookieStore.set('device-id', deviceId, {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 365,
+      path: '/',
+    });
+    return token;
+  } catch {
+    return null;
+  }
+}
+
 export async function checkRateLimit(
   request: NextRequest,
   routeName: string = 'API'
 ): Promise<RateLimitResult> {
   // Check for session token
-  const sessionToken = request.cookies.get('session-token')?.value;
-  
+  let sessionToken = request.cookies.get('session-token')?.value;
+
   if (!sessionToken) {
-    return {
-      success: false,
-      response: NextResponse.json(
-        { error: 'Session token required' },
-        { status: 401, headers: getRateLimitHeaders(RATE_LIMITS.PLUS_DAILY_LIMIT, false) }
-      ),
-    };
+    const provisioned = await provisionSession(request);
+    if (provisioned) {
+      sessionToken = provisioned;
+    } else {
+      return {
+        success: false,
+        response: NextResponse.json(
+          { error: 'Session token required' },
+          { status: 401, headers: getRateLimitHeaders(RATE_LIMITS.PLUS_DAILY_LIMIT, false) }
+        ),
+      };
+    }
   }
 
-  const status = await getRateLimitStatus(sessionToken);
-  
+  let status = await getRateLimitStatus(sessionToken);
+
   if (!status.isValid) {
-    return {
-      success: false,
-      response: NextResponse.json(
-        { error: 'Invalid or expired session token' },
-        { status: 401, headers: getRateLimitHeaders(RATE_LIMITS.PLUS_DAILY_LIMIT, false) }
-      ),
-    };
+    const provisioned = await provisionSession(request);
+    if (provisioned) {
+      sessionToken = provisioned;
+      status = await getRateLimitStatus(sessionToken);
+    }
+    if (!status.isValid) {
+      return {
+        success: false,
+        response: NextResponse.json(
+          { error: 'Invalid or expired session token' },
+          { status: 401, headers: getRateLimitHeaders(RATE_LIMITS.PLUS_DAILY_LIMIT, false) }
+        ),
+      };
+    }
   }
 
   // If already at limit, don't bother trying to increment

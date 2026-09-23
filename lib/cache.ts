@@ -411,6 +411,21 @@ export class SearchCache {
 }
 
 /**
+ * Empty result payloads (e.g. `{ results: [] }`) are transient upstream gaps,
+ * not cacheable facts. Caching them is what forced the client into
+ * cache-busting retry requests, so they are always passed through uncached.
+ * Responses marked `Cache-Control: no-store` are likewise never cached.
+ */
+function isEmptyResultsPayload(response: Response, data: unknown): boolean {
+  const cacheControl = response.headers.get('Cache-Control') || '';
+  if (/(^|,)\s*no-store\b/.test(cacheControl)) return true;
+  if (data && typeof data === 'object' && Array.isArray((data as { results?: unknown }).results)) {
+    return (data as { results: unknown[] }).results.length === 0;
+  }
+  return false;
+}
+
+/**
  * Enhanced fetch function with session refresh and caching
  */
 export async function fetchWithSessionRefreshAndCache<T = any>(
@@ -472,13 +487,15 @@ export async function fetchWithSessionRefreshAndCache<T = any>(
             try {
               const responseClone = retryResponse.clone();
               const data = await responseClone.json();
-              SearchCache.set(
-                cacheConfig.searchType,
-                cacheConfig.provider,
-                cacheConfig.query,
-                data,
-                cacheConfig.searchParams
-              );
+              if (!isEmptyResultsPayload(retryResponse, data)) {
+                SearchCache.set(
+                  cacheConfig.searchType,
+                  cacheConfig.provider,
+                  cacheConfig.query,
+                  data,
+                  cacheConfig.searchParams
+                );
+              }
             } catch (error) {
               if (process.env.NODE_ENV === 'development') {
                 console.warn('Error caching response after retry:', error);
@@ -501,20 +518,24 @@ export async function fetchWithSessionRefreshAndCache<T = any>(
     }
   }
 
-  // Cache successful response if caching is enabled
+  // Cache successful response if caching is enabled.
+  // Empty result payloads are transient upstream gaps, never cached, and
+  // no-store responses are always passed through uncached.
   if (cacheConfig && !cacheConfig.skipCache && originalResponse.ok) {
     try {
       // We need to read the body to cache it, but we can't read it twice.
       // So we read it, cache it, and then return a new Response with the same body.
       const data = await originalResponse.json();
 
-      SearchCache.set(
-        cacheConfig.searchType,
-        cacheConfig.provider,
-        cacheConfig.query,
-        data,
-        cacheConfig.searchParams
-      );
+      if (!isEmptyResultsPayload(originalResponse, data)) {
+        SearchCache.set(
+          cacheConfig.searchType,
+          cacheConfig.provider,
+          cacheConfig.query,
+          data,
+          cacheConfig.searchParams
+        );
+      }
 
       // Return a new response with the consumed data
       return new Response(JSON.stringify(data), {

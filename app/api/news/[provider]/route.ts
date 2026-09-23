@@ -243,7 +243,11 @@ async function GETHandler(req: NextRequest, { params }: { params: Promise<{ prov
     }
   });
 
-  return NextResponse.json({ results }, { status: 200 });
+  // Empty payloads are transient upstream gaps, not cacheable facts.
+  return NextResponse.json({ results }, {
+    status: 200,
+    headers: results.length === 0 ? { 'Cache-Control': 'no-store' } : undefined,
+  });
 }
 
 export const GET = withAPIObservability(GETHandler);

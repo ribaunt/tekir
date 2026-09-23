@@ -612,7 +612,7 @@ export default function Home() {
                 className="p-1.5 hover:bg-background/50 rounded-full transition-colors text-muted-foreground hover:text-primary disabled:opacity-50"
                 title={tHome("recommendations.refresh")}
               >
-                <RefreshCw className={cn("w-3.5 h-3.5", recSwitching && "animate-spin")} />
+                <RefreshCw className={cn("w-3.5 h-3.5", recSwitching && "opacity-50")} />
               </button>
             </div>
           )}

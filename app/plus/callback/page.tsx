@@ -3,7 +3,6 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Suspense } from 'react';
-import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 
 function CallbackContent() {
@@ -39,9 +38,11 @@ function CallbackContent() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="flex flex-col items-center gap-4">
-        <Loader2 className="w-12 h-12 text-primary animate-spin" />
-        <p className="text-muted-foreground">Processing your subscription...</p>
+      <div className="w-full max-w-sm rounded-lg border border-border bg-card p-6 space-y-3" aria-label="Processing your subscription">
+        <div className="h-5 w-2/3 rounded bg-muted animate-pulse-fast" />
+        <div className="h-3 w-full rounded bg-muted animate-pulse-fast" />
+        <div className="h-3 w-4/5 rounded bg-muted animate-pulse-fast" />
+        <p className="text-muted-foreground text-sm">Processing your subscription...</p>
       </div>
     </div>
   );
@@ -50,8 +51,11 @@ function CallbackContent() {
 export default function PlusCallbackPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="w-full max-w-sm rounded-lg border border-border bg-card p-6 space-y-3" aria-label="Loading">
+          <div className="h-5 w-1/2 rounded bg-muted animate-pulse-fast" />
+          <div className="h-3 w-full rounded bg-muted animate-pulse-fast" />
+        </div>
       </div>
     }>
       <CallbackContent />
